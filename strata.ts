@@ -542,7 +542,8 @@ function forwardSlice(
 
 export function computeBlastRadii(
   allFunctions: FunctionInfo[],
-  testFiles: Set<string>
+  testFiles: Set<string>,
+  targetFunctions?: Set<string>
 ): BlastRadius[] {
   const graph = buildCallGraph(allFunctions);
   const results: BlastRadius[] = [];
@@ -551,6 +552,8 @@ export function computeBlastRadii(
     if (isTestFile(f.file)) continue;
 
     const key = `${f.file}::${f.name}`;
+    if (targetFunctions && !targetFunctions.has(key)) continue;
+
     const { deps, depth } = forwardSlice(key, graph);
 
     const untested = deps.filter((dep) => {
@@ -747,7 +750,16 @@ export async function analyze(
 
   process.stderr.write("⏳ Computing blast radii...\n");
   const allFuncsWithTests = [...allFunctions, ...testFunctions];
-  const blastRadii = computeBlastRadii(allFuncsWithTests, testFiles);
+
+  const hotspotTargets = new Set(
+    hotspots.slice(0, top * 3).map((h) => {
+      const f = allFunctions.find(
+        (fn) => fn.file === h.file && fn.name === h.function && fn.startLine === h.startLine
+      );
+      return f ? `${f.file}::${f.name}` : "";
+    }).filter(Boolean)
+  );
+  const blastRadii = computeBlastRadii(allFuncsWithTests, testFiles, hotspotTargets.size > 0 ? hotspotTargets : undefined);
 
   return buildSvDocument(
     absPath,
