@@ -1,7 +1,7 @@
-import { parseGitLog, computeChurn, computeTemporalCoupling } from "../core/git-analysis.js";
+import { computeChurn, computeTemporalCoupling } from "../core/git-analysis.js";
 import type { CommitFile, FileChurn, TemporalPair } from "../core/git-analysis.js";
 
-const GIT_LOG_FORMAT = "--format=%H|%aI|%aN";
+const GIT_LOG_FORMAT = "--format=COMMIT:%H|%aI|%aN";
 
 export async function getGitLog(repoPath: string, months = 12): Promise<CommitFile[]> {
 	const since = `--since=${months} months ago`;
@@ -14,7 +14,43 @@ export async function getGitLog(repoPath: string, months = 12): Promise<CommitFi
 		throw new Error(`git log failed: ${result.stderr.toString()}`);
 	}
 
-	return parseGitLog(result.stdout.toString());
+	return parseGitLogRaw(result.stdout.toString());
+}
+
+function parseGitLogRaw(raw: string): CommitFile[] {
+	const commits: CommitFile[] = [];
+	const lines = raw.split("\n");
+
+	let current: CommitFile | null = null;
+
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+
+		if (trimmed.startsWith("COMMIT:")) {
+			if (current && current.files.length > 0) {
+				commits.push(current);
+			}
+			const rest = trimmed.slice(7);
+			const match = rest.match(/^([a-f0-9]+)\|(.+)\|(.+)$/);
+			if (match) {
+				current = { hash: match[1], date: match[2], author: match[3], files: [] };
+			} else {
+				current = null;
+			}
+			continue;
+		}
+
+		if (current && !trimmed.startsWith("Merge")) {
+			current.files.push(trimmed);
+		}
+	}
+
+	if (current && current.files.length > 0) {
+		commits.push(current);
+	}
+
+	return commits;
 }
 
 export async function getFileChurn(repoPath: string, months = 12): Promise<Map<string, FileChurn>> {
