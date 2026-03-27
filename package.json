@@ -13,8 +13,8 @@
     "strata": "bun run src/cli/index.ts"
   },
   "dependencies": {
-    "tree-sitter-wasms": "0.1.13",
-    "web-tree-sitter": "0.26.7",
+    "tree-sitter-wasms": "0.1.11",
+    "web-tree-sitter": "0.24.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {
