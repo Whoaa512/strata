@@ -1,11 +1,25 @@
 import type { GitCommit } from "../types";
 import { $ } from "bun";
+import { relative, resolve } from "node:path";
 
 export async function parseGitLog(repoPath: string): Promise<GitCommit[]> {
   try {
+    const gitRoot = (await $`git -C ${repoPath} rev-parse --show-toplevel`.text()).trim();
+    const relPrefix = relative(gitRoot, resolve(repoPath));
+
     const result =
       await $`git -C ${repoPath} log --pretty=format:'%H|%aI|%an' --name-only -n 500`.text();
-    return parseLogOutput(result);
+
+    const commits = parseLogOutput(result);
+
+    if (!relPrefix) return commits;
+
+    return commits.map((c) => ({
+      ...c,
+      files: c.files
+        .filter((f) => f.startsWith(relPrefix + "/"))
+        .map((f) => f.slice(relPrefix.length + 1)),
+    }));
   } catch {
     return [];
   }
