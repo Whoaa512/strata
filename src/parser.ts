@@ -70,6 +70,7 @@ export function parseSource(source: string, langId: LangId): Tree {
   const p = acquireParser(langId);
   const tree = p.parse(source);
   releaseParser(p);
+  if (!tree) throw new Error("Failed to parse source");
   return tree;
 }
 
