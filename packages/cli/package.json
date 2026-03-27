@@ -1,0 +1,13 @@
+{
+	"name": "@strata/cli",
+	"version": "0.0.1",
+	"type": "module",
+	"main": "src/index.ts",
+	"bin": {
+		"strata": "src/index.ts"
+	},
+	"dependencies": {
+		"@strata/extraction": "workspace:*",
+		"@strata/analysis": "workspace:*"
+	}
+}

@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"declaration": true,
+		"outDir": "dist",
+		"rootDir": ".",
+		"paths": {
+			"@strata/extraction": ["./packages/extraction/src/index.ts"],
+			"@strata/analysis": ["./packages/analysis/src/index.ts"],
+			"@strata/cli": ["./packages/cli/src/index.ts"]
+		}
+	},
+	"exclude": ["node_modules", "dist"]
+}
