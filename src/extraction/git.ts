@@ -39,12 +39,17 @@ export function parseGitLog(raw: string): GitCommit[] {
     const author = lines[i + 2]?.trim() ?? "";
     i += 3;
 
+    // Skip blank line between format header and file data
+    if (i < lines.length && !lines[i]?.trim()) i++;
+
+    // Read name-only file lines (no tabs)
     const files: string[] = [];
     while (i < lines.length && lines[i]?.trim() && !lines[i].includes("\t")) {
       files.push(lines[i].trim());
       i++;
     }
 
+    // Read numstat lines (tab-separated)
     const numstat: NumstatEntry[] = [];
     while (i < lines.length && lines[i]?.includes("\t")) {
       const parts = lines[i].split("\t");
@@ -58,10 +63,13 @@ export function parseGitLog(raw: string): GitCommit[] {
       i++;
     }
 
-    // skip blank lines between commits
+    // If no name-only files were found, derive from numstat
+    const effectiveFiles =
+      files.length > 0 ? files : numstat.map((ns) => ns.file);
+
     while (i < lines.length && !lines[i]?.trim()) i++;
 
-    commits.push({ hash, date, author, files, numstat });
+    commits.push({ hash, date, author, files: effectiveFiles, numstat });
   }
 
   return commits;
@@ -185,7 +193,6 @@ export async function getGitLog(
       "log",
       `--since=${sinceStr}`,
       "--format=%H%n%ai%n%an",
-      "--name-only",
       "--numstat",
       "--",
       "*.ts",
