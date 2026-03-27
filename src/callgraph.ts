@@ -142,7 +142,10 @@ export function computeBlastRadii(
     const fanIn = reverse.get(key)?.size ?? 0;
 
     const hasTestCoverage = testFiles.has(fn.filePath) ||
-      Array.from(testFiles).some((tf) => tf.includes(fn.filePath.replace(/\.tsx?$/, "")));
+      Array.from(testFiles).some((tf) => {
+        const baseName = fn.filePath.replace(/\.tsx?$/, "").split("/").pop() ?? "";
+        return tf.includes(baseName + ".test.") || tf.includes(baseName + ".spec.");
+      });
 
     const riskScore = computeRiskScore(fn.complexity, fanOut, fanIn, forwardSlice.size, hasTestCoverage);
 
