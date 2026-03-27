@@ -1,0 +1,22 @@
+{
+  "name": "strata-v6",
+  "version": "0.1.0",
+  "description": "Code complexity analyzer using TypeScript compiler API",
+  "type": "module",
+  "bin": {
+    "strata": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --outdir dist --target node",
+    "dev": "bun run src/cli.ts",
+    "test": "bun test",
+    "lint": "bunx biome check --write src/ test/"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "^1.2.0"
+  },
+  "dependencies": {
+    "typescript": "^5.7.0"
+  }
+}
