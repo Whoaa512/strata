@@ -1,0 +1,27 @@
+{
+  "name": "strata",
+  "version": "0.1.0",
+  "module": "src/cli.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "strata": "./src/cli.ts"
+  },
+  "scripts": {
+    "strata": "bun run src/cli.ts",
+    "test": "bun test",
+    "lint": "bunx biome check --write src/ test/",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@biomejs/biome": "^1.9.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "0.20.8"
+  }
+}
