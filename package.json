@@ -1,6 +1,13 @@
 {
   "name": "strata-v4",
   "module": "index.ts",
+  "bin": {
+    "strata": "./src/cli.ts"
+  },
+  "scripts": {
+    "strata": "bun run src/cli.ts",
+    "test": "bun test"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^25.5.0"
