@@ -39,17 +39,49 @@ export class Engine {
       if (result.edges) allEdges.push(...result.edges);
     }
 
-    const hotspots = computeHotspots(allEntities);
+    const merged = mergeEntities(allEntities);
+    const hotspots = computeHotspots(merged);
 
     return {
       version: "0.1.0",
       repo: repoPath,
       analyzedAt: new Date().toISOString(),
-      entities: allEntities,
+      entities: merged,
       edges: allEdges ?? [],
       hotspots,
     };
   }
+}
+
+function mergeEntities(entities: SvEntity[]): SvEntity[] {
+  const byId = new Map<string, SvEntity>();
+  const fileMetrics = new Map<string, Record<string, number>>();
+
+  for (const e of entities) {
+    if (e.kind === "file") {
+      fileMetrics.set(e.filePath, { ...fileMetrics.get(e.filePath), ...e.metrics });
+    }
+
+    const existing = byId.get(e.id);
+    if (!existing) {
+      byId.set(e.id, { ...e });
+      continue;
+    }
+    existing.metrics = { ...existing.metrics, ...e.metrics };
+  }
+
+  for (const entity of byId.values()) {
+    if (entity.kind !== "function") continue;
+
+    const fm = fileMetrics.get(entity.filePath);
+    if (!fm) continue;
+
+    if (fm.churn !== undefined && entity.metrics.churn === undefined) {
+      entity.metrics.churn = fm.churn;
+    }
+  }
+
+  return [...byId.values()];
 }
 
 function computeHotspots(entities: SvEntity[]): Hotspot[] {
