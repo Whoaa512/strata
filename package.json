@@ -1,6 +1,16 @@
 {
-  "name": "strata-v1",
-  "module": "index.ts",
+  "name": "strata",
+  "version": "0.1.0",
+  "description": "Code complexity analyzer for TS/JS repos — hotspots, blast radius, temporal coupling",
+  "module": "strata.ts",
+  "bin": {
+    "strata": "strata.ts"
+  },
+  "scripts": {
+    "analyze": "bun strata.ts",
+    "test": "bun test",
+    "lint": "bunx tsc --noEmit"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

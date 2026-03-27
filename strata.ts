@@ -121,7 +121,7 @@ export async function getFileChurn(repoPath: string, months = 12): Promise<FileC
     const parts = trimmed.split("\t");
     if (parts.length !== 3) continue;
 
-    const [added, removed, filePath] = parts;
+    const [added, removed, filePath] = parts as [string, string, string];
     if (!isTargetFile(filePath)) continue;
     if (added === "-" || removed === "-") continue;
 
@@ -164,7 +164,7 @@ export async function getCommitFiles(repoPath: string, months = 12): Promise<Com
     }
 
     if (trimmed.includes("|") && !trimmed.includes("/")) {
-      const [hash, ts] = trimmed.split("|");
+      const [hash, ts] = trimmed.split("|") as [string, string];
       current = { hash, timestamp: parseInt(ts, 10), files: [] };
       continue;
     }
@@ -204,7 +204,7 @@ export function computeTemporalCoupling(
   const couplings: TemporalCoupling[] = [];
   for (const [key, count] of pairCount) {
     if (count < minCochanges) continue;
-    const [fileA, fileB] = key.split("|||");
+    const [fileA, fileB] = key.split("|||") as [string, string];
     const totalA = fileCount.get(fileA) ?? 0;
     const totalB = fileCount.get(fileB) ?? 0;
     const strength = count / Math.max(totalA, totalB);
@@ -554,7 +554,7 @@ export function computeBlastRadii(
     const { deps, depth } = forwardSlice(key, graph);
 
     const untested = deps.filter((dep) => {
-      const [file, name] = dep.split("::");
+      const [file, name] = dep.split("::") as [string, string];
       return !findTestsForFunction(name, file, testFiles, allFunctions);
     });
 
@@ -857,22 +857,22 @@ function parseArgs(args: string[]): {
   let output: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+    const arg = args[i]!;
     switch (arg) {
       case "--months":
-        months = parseInt(args[++i], 10);
+        months = parseInt(args[++i] ?? "12", 10);
         break;
       case "--top":
-        top = parseInt(args[++i], 10);
+        top = parseInt(args[++i] ?? "10", 10);
         break;
       case "--min-cochanges":
-        minCochanges = parseInt(args[++i], 10);
+        minCochanges = parseInt(args[++i] ?? "3", 10);
         break;
       case "--json":
         json = true;
         break;
       case "--output":
-        output = args[++i];
+        output = args[++i] ?? null;
         break;
       case "-h":
       case "--help":

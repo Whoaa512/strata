@@ -42,14 +42,14 @@ function parse(source: string, lang: Parser.Language): Parser.Tree {
 describe("computeCognitiveComplexity", () => {
   test("simple function has 0 complexity", () => {
     const tree = parse("function add(a, b) { return a + b; }", tsLang);
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     expect(computeCognitiveComplexity(body)).toBe(0);
   });
 
   test("single if adds 1", () => {
     const tree = parse("function f(x) { if (x) { return 1; } return 0; }", tsLang);
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     expect(computeCognitiveComplexity(body)).toBe(1);
   });
@@ -59,7 +59,7 @@ describe("computeCognitiveComplexity", () => {
       "function f(x, y) { if (x) { if (y) { return 1; } } return 0; }",
       tsLang
     );
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     // outer if: 1 (base) + 0 (nesting=0) = 1
     // inner if: 1 (base) + 1 (nesting=1) = 2
@@ -72,7 +72,7 @@ describe("computeCognitiveComplexity", () => {
       "function f(x) { if (x) { return 1; } else { return 0; } }",
       tsLang
     );
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     // if: 1, else: 1 = 2
     expect(computeCognitiveComplexity(body)).toBe(2);
@@ -80,7 +80,7 @@ describe("computeCognitiveComplexity", () => {
 
   test("logical operators add 1 each", () => {
     const tree = parse("function f(a, b, c) { return a && b || c; }", tsLang);
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     expect(computeCognitiveComplexity(body)).toBe(2);
   });
@@ -90,7 +90,7 @@ describe("computeCognitiveComplexity", () => {
       "function f(arr) { for (const x of arr) { if (x > 0) { console.log(x); } } }",
       tsLang
     );
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     // for: 1+0=1, if inside for: 1+1=2 → total 3
     expect(computeCognitiveComplexity(body)).toBe(3);
@@ -98,7 +98,7 @@ describe("computeCognitiveComplexity", () => {
 
   test("ternary adds complexity", () => {
     const tree = parse("function f(x) { return x > 0 ? 'yes' : 'no'; }", tsLang);
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     expect(computeCognitiveComplexity(body)).toBeGreaterThanOrEqual(1);
   });
@@ -108,7 +108,7 @@ describe("computeCognitiveComplexity", () => {
       "function f() { try { doStuff(); } catch (e) { handleError(e); } }",
       tsLang
     );
-    const fn = tree.rootNode.children[0];
+    const fn = tree.rootNode.children[0]!;
     const body = fn.childForFieldName("body")!;
     expect(computeCognitiveComplexity(body)).toBeGreaterThanOrEqual(1);
   });
@@ -283,8 +283,8 @@ describe("computeHotspots", () => {
 
     const hotspots = computeHotspots(funcs, churn);
 
-    expect(hotspots[0].score).toBe(150); // 15 × 10
-    expect(hotspots[1].score).toBe(40); // 2 × 20
+    expect(hotspots[0]!.score).toBe(150); // 15 × 10
+    expect(hotspots[1]!.score).toBe(40); // 2 × 20
   });
 
   test("excludes test files", () => {
@@ -342,8 +342,8 @@ describe("computeTemporalCoupling", () => {
     const couplings = computeTemporalCoupling(commits, 3);
 
     expect(couplings.length).toBe(1);
-    expect(couplings[0].cochanges).toBe(3);
-    expect(couplings[0].couplingStrength).toBe(1); // 3/3
+    expect(couplings[0]!.cochanges).toBe(3);
+    expect(couplings[0]!.couplingStrength).toBe(1); // 3/3
   });
 
   test("respects minCochanges threshold", () => {
@@ -366,7 +366,7 @@ describe("computeTemporalCoupling", () => {
     ];
 
     const couplings = computeTemporalCoupling(commits, 3);
-    expect(couplings[0].couplingStrength).toBe(3 / 5); // 3 co-changes / 5 changes to a
+    expect(couplings[0]!.couplingStrength).toBe(3 / 5); // 3 co-changes / 5 changes to a
   });
 
   test("handles multiple pairs", () => {
@@ -434,7 +434,7 @@ describe("buildSvDocument", () => {
 
     const cochangeEdges = doc.edges.filter((e) => e.type === "co_changes_with");
     expect(cochangeEdges.length).toBe(1);
-    expect(cochangeEdges[0].weight).toBe(0.5);
+    expect(cochangeEdges[0]!.weight).toBe(0.5);
 
     expect(doc.hotspots.length).toBe(1);
     expect(doc.temporalCouplings.length).toBe(1);
@@ -495,8 +495,8 @@ describe("git integration", () => {
     expect(Array.isArray(churn)).toBe(true);
     // After committing strata.ts, it should appear
     if (churn.length > 0) {
-      expect(churn[0].path).toBeTruthy();
-      expect(churn[0].commits).toBeGreaterThan(0);
+      expect(churn[0]!.path).toBeTruthy();
+      expect(churn[0]!.commits).toBeGreaterThan(0);
     }
   });
 
