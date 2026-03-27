@@ -10,6 +10,13 @@
       "recommended": true,
       "complexity": {
         "noForEach": "off"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "noUnusedTemplateLiteral": "off"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "off"
       }
     }
   }

@@ -5,10 +5,11 @@ const GIT_LOG_FORMAT = "--format=COMMIT:%H|%aI|%aN";
 
 export async function getGitLog(repoPath: string, months = 12): Promise<CommitFile[]> {
 	const since = `--since=${months} months ago`;
-	const result = Bun.spawnSync(
-		["git", "log", GIT_LOG_FORMAT, "--name-only", since],
-		{ cwd: repoPath, stdout: "pipe", stderr: "pipe" },
-	);
+	const result = Bun.spawnSync(["git", "log", GIT_LOG_FORMAT, "--name-only", since], {
+		cwd: repoPath,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 
 	if (result.exitCode !== 0) {
 		throw new Error(`git log failed: ${result.stderr.toString()}`);
@@ -69,10 +70,11 @@ export async function getTemporalCoupling(
 }
 
 export async function getTrackedFiles(repoPath: string): Promise<string[]> {
-	const result = Bun.spawnSync(
-		["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-		{ cwd: repoPath, stdout: "pipe", stderr: "pipe" },
-	);
+	const result = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard"], {
+		cwd: repoPath,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 
 	if (result.exitCode !== 0) {
 		throw new Error(`git ls-files failed: ${result.stderr.toString()}`);

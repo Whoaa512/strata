@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-	computeHotspots,
 	buildCallGraph,
-	forwardSlice,
-	computeRiskScore,
 	computeBlastRadius,
+	computeHotspots,
+	computeRiskScore,
+	forwardSlice,
 } from "../src/core/scoring";
-import type { Entity, Edge } from "../src/core/types";
+import type { Edge, Entity } from "../src/core/types";
 import { emptyMetrics } from "../src/core/types";
 
 function makeEntity(id: string, complexity: number, churn: number): Entity {
@@ -23,11 +23,7 @@ function makeEntity(id: string, complexity: number, churn: number): Entity {
 
 describe("computeHotspots", () => {
 	test("scores complexity × churn", () => {
-		const entities = [
-			makeEntity("a", 10, 5),
-			makeEntity("b", 2, 20),
-			makeEntity("c", 15, 3),
-		];
+		const entities = [makeEntity("a", 10, 5), makeEntity("b", 2, 20), makeEntity("c", 15, 3)];
 
 		const hotspots = computeHotspots(entities);
 
@@ -46,10 +42,7 @@ describe("computeHotspots", () => {
 	});
 
 	test("only includes function entities", () => {
-		const entities: Entity[] = [
-			{ ...makeEntity("a", 10, 5), kind: "file" },
-			makeEntity("b", 5, 3),
-		];
+		const entities: Entity[] = [{ ...makeEntity("a", 10, 5), kind: "file" }, makeEntity("b", 5, 3)];
 		const hotspots = computeHotspots(entities);
 		expect(hotspots.length).toBe(1);
 		expect(hotspots[0].entityId).toBe("b");

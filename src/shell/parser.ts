@@ -1,6 +1,6 @@
-import Parser from "web-tree-sitter";
 import path from "node:path";
-import { extractFunctions, type FunctionInfo } from "../core/complexity.js";
+import Parser from "web-tree-sitter";
+import { type FunctionInfo, extractFunctions } from "../core/complexity.js";
 
 let tsParser: Parser | null = null;
 let jsParser: Parser | null = null;

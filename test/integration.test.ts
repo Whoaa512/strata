@@ -1,7 +1,7 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import { analyze } from "../src/shell/analyze";
 
 let fixtureDir: string;
@@ -150,9 +150,7 @@ describe("integration: analyze", () => {
 			topN: 10,
 		});
 
-		const fnNames = sv.entities
-			.filter((e) => e.kind === "function")
-			.map((e) => e.name);
+		const fnNames = sv.entities.filter((e) => e.kind === "function").map((e) => e.name);
 
 		expect(fnNames).toContain("validateToken");
 		expect(fnNames).toContain("hashPassword");
@@ -172,9 +170,7 @@ describe("integration: analyze", () => {
 		const authFile = sv.entities.find(
 			(e) => e.kind === "file" && e.filePath.includes("auth.ts") && !e.filePath.includes("test"),
 		);
-		const dbFile = sv.entities.find(
-			(e) => e.kind === "file" && e.filePath.includes("db.ts"),
-		);
+		const dbFile = sv.entities.find((e) => e.kind === "file" && e.filePath.includes("db.ts"));
 
 		expect(authFile).toBeDefined();
 		expect(dbFile).toBeDefined();

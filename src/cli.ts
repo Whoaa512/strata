@@ -1,10 +1,15 @@
 #!/usr/bin/env bun
 
 import path from "node:path";
-import { analyze, type AnalyzeOptions } from "./shell/analyze.js";
 import type { StrataView } from "./core/types.js";
+import { type AnalyzeOptions, analyze } from "./shell/analyze.js";
 
-function parseArgs(argv: string[]): { repoPath: string; options: Partial<AnalyzeOptions>; outputPath?: string; format: "json" | "text" } {
+function parseArgs(argv: string[]): {
+	repoPath: string;
+	options: Partial<AnalyzeOptions>;
+	outputPath?: string;
+	format: "json" | "text";
+} {
 	const args = argv.slice(2);
 	let repoPath = ".";
 	let outputPath: string | undefined;
@@ -88,8 +93,8 @@ function formatTextOutput(sv: StrataView): string {
 
 		lines.push(
 			`  ${(i + 1).toString().padStart(2)}. ${entity.name}` +
-			`  (complexity: ${h.complexity}, churn: ${h.churn}, score: ${h.score})` +
-			`\n      ${entity.filePath}:${entity.startLine}`,
+				`  (complexity: ${h.complexity}, churn: ${h.churn}, score: ${h.score})` +
+				`\n      ${entity.filePath}:${entity.startLine}`,
 		);
 	}
 
@@ -101,9 +106,9 @@ function formatTextOutput(sv: StrataView): string {
 
 		lines.push(
 			`  ${entity.name}` +
-			`  → affects ${br.forwardSlice.length} functions` +
-			`, test coverage: ${(br.testCoverage * 100).toFixed(0)}%` +
-			`, risk: ${(br.riskScore * 100).toFixed(0)}%`,
+				`  → affects ${br.forwardSlice.length} functions` +
+				`, test coverage: ${(br.testCoverage * 100).toFixed(0)}%` +
+				`, risk: ${(br.riskScore * 100).toFixed(0)}%`,
 		);
 
 		if (br.changeCoupling.length > 0) {
@@ -121,7 +126,7 @@ function formatTextOutput(sv: StrataView): string {
 		const staticTag = tc.hasStaticDependency ? "" : " ⚠ no static dep";
 		lines.push(
 			`  ${tc.fileA} ↔ ${tc.fileB}` +
-			`  (${tc.coChangeCount} co-changes, confidence: ${(tc.confidence * 100).toFixed(0)}%${staticTag})`,
+				`  (${tc.coChangeCount} co-changes, confidence: ${(tc.confidence * 100).toFixed(0)}%${staticTag})`,
 		);
 	}
 

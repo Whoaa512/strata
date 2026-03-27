@@ -124,11 +124,7 @@ export function extractFunctions(rootNode: Node, filePath: string): FunctionInfo
 	return functions;
 }
 
-function walkForFunctions(
-	node: Node,
-	results: FunctionInfo[],
-	filePath: string,
-): void {
+function walkForFunctions(node: Node, results: FunctionInfo[], filePath: string): void {
 	if (FUNCTION_NODE_TYPES.has(node.type)) {
 		const name = resolveFunctionName(node, filePath);
 		const params = extractParameters(node);
@@ -183,8 +179,11 @@ function extractParameters(node: Node): number {
 	const params = node.childForFieldName("parameters");
 	if (!params) return 0;
 	return params.namedChildren.filter(
-		(c) => c.type === "identifier" || c.type === "required_parameter" ||
-			c.type === "optional_parameter" || c.type === "rest_pattern" ||
+		(c) =>
+			c.type === "identifier" ||
+			c.type === "required_parameter" ||
+			c.type === "optional_parameter" ||
+			c.type === "rest_pattern" ||
 			c.type === "assignment_pattern",
 	).length;
 }

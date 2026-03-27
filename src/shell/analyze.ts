@@ -1,20 +1,11 @@
 import path from "node:path";
-import type {
-	Entity,
-	Edge,
-	StrataView,
-	TemporalCouplingPair,
-} from "../core/types.js";
-import { emptyMetrics } from "../core/types.js";
-import {
-	computeHotspots,
-	buildCallGraph,
-	computeBlastRadius,
-} from "../core/scoring.js";
-import { computeTemporalCoupling, computeChurn, parseGitLog } from "../core/git-analysis.js";
-import { parseFile, isAnalyzableFile } from "./parser.js";
-import { getGitLog, getTrackedFiles } from "./git.js";
 import type { FunctionInfo } from "../core/complexity.js";
+import { computeChurn, computeTemporalCoupling, parseGitLog } from "../core/git-analysis.js";
+import { buildCallGraph, computeBlastRadius, computeHotspots } from "../core/scoring.js";
+import type { Edge, Entity, StrataView, TemporalCouplingPair } from "../core/types.js";
+import { emptyMetrics } from "../core/types.js";
+import { getGitLog, getTrackedFiles } from "./git.js";
+import { isAnalyzableFile, parseFile } from "./parser.js";
 
 export interface AnalyzeOptions {
 	repoPath: string;
@@ -71,11 +62,11 @@ export async function analyze(opts: AnalyzeOptions): Promise<StrataView> {
 
 	resolveCallEdges(edges, calleesByEntityId, functionsByName);
 
+	computeFanMetrics(entities, edges);
+
 	const callGraph = buildCallGraph(edges);
 
-	const testFileIds = new Set(
-		analyzableFiles.filter((f) => isTestFile(f)),
-	);
+	const testFileIds = new Set(analyzableFiles.filter((f) => isTestFile(f)));
 
 	const couplingMap = buildTemporalCouplingMap(temporalPairs, importMap);
 
@@ -243,11 +234,7 @@ function buildTemporalCouplingMap(
 	return map;
 }
 
-function hasStaticDep(
-	fileA: string,
-	fileB: string,
-	importMap: Map<string, Set<string>>,
-): boolean {
+function hasStaticDep(fileA: string, fileB: string, importMap: Map<string, Set<string>>): boolean {
 	const importsA = importMap.get(fileA);
 	if (importsA) {
 		for (const imp of importsA) {
@@ -263,4 +250,20 @@ function hasStaticDep(
 	}
 
 	return false;
+}
+
+function computeFanMetrics(entities: Entity[], edges: Edge[]): void {
+	const fanOutCounts = new Map<string, number>();
+	const fanInCounts = new Map<string, number>();
+
+	for (const edge of edges) {
+		if (edge.kind !== "calls") continue;
+		fanOutCounts.set(edge.source, (fanOutCounts.get(edge.source) ?? 0) + 1);
+		fanInCounts.set(edge.target, (fanInCounts.get(edge.target) ?? 0) + 1);
+	}
+
+	for (const entity of entities) {
+		entity.metrics.fanOut = fanOutCounts.get(entity.id) ?? 0;
+		entity.metrics.fanIn = fanInCounts.get(entity.id) ?? 0;
+	}
 }

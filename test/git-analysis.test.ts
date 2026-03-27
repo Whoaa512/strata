@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseGitLog, computeChurn, computeTemporalCoupling } from "../src/core/git-analysis";
+import { computeChurn, computeTemporalCoupling, parseGitLog } from "../src/core/git-analysis";
 
 const SAMPLE_LOG = `abc1234|2024-01-15|alice
 src/auth.ts
@@ -74,7 +74,8 @@ describe("computeTemporalCoupling", () => {
 		const pairs = computeTemporalCoupling(commits, 2, 0.3);
 
 		const authUtils = pairs.find(
-			(p) => (p.fileA === "src/auth.ts" && p.fileB === "src/utils.ts") ||
+			(p) =>
+				(p.fileA === "src/auth.ts" && p.fileB === "src/utils.ts") ||
 				(p.fileA === "src/utils.ts" && p.fileB === "src/auth.ts"),
 		);
 
@@ -100,8 +101,9 @@ describe("computeTemporalCoupling", () => {
 		const pairs = computeTemporalCoupling(commits, 1, 0);
 
 		const authUtils = pairs.find(
-			(p) => p.fileA === "src/auth.ts" && p.fileB === "src/utils.ts" ||
-				p.fileA === "src/utils.ts" && p.fileB === "src/auth.ts",
+			(p) =>
+				(p.fileA === "src/auth.ts" && p.fileB === "src/utils.ts") ||
+				(p.fileA === "src/utils.ts" && p.fileB === "src/auth.ts"),
 		)!;
 
 		expect(authUtils.confidence).toBe(3 / 3);

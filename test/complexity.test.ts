@@ -1,11 +1,11 @@
-import { describe, expect, test, beforeAll } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
+import path from "node:path";
 import Parser from "web-tree-sitter";
 import {
 	computeCognitiveComplexity,
 	computeMaxNesting,
 	extractFunctions,
 } from "../src/core/complexity";
-import path from "node:path";
 
 let tsParser: Parser;
 

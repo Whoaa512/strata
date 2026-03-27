@@ -107,7 +107,14 @@ export function computeTemporalCoupling(
 
 		if (confidence < minConfidence) continue;
 
-		pairs.push({ fileA, fileB, coChangeCount, totalChangesA: totalA, totalChangesB: totalB, confidence });
+		pairs.push({
+			fileA,
+			fileB,
+			coChangeCount,
+			totalChangesA: totalA,
+			totalChangesB: totalB,
+			confidence,
+		});
 	}
 
 	pairs.sort((a, b) => b.confidence - a.confidence);

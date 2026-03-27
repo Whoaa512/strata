@@ -1,4 +1,4 @@
-import type { Entity, Edge, HotspotScore, BlastRadius } from "./types.js";
+import type { BlastRadius, Edge, Entity, HotspotScore } from "./types.js";
 
 export function computeHotspots(entities: Entity[]): HotspotScore[] {
 	const scores: HotspotScore[] = [];
@@ -122,5 +122,5 @@ export function computeRiskScore(
 	const complexityFactor = Math.min(complexity / 20, 1);
 	const couplingFactor = Math.min(couplingCount / 5, 1);
 
-	return (sliceFactor * 0.3 + coverageGap * 0.3 + complexityFactor * 0.2 + couplingFactor * 0.2);
+	return sliceFactor * 0.3 + coverageGap * 0.3 + complexityFactor * 0.2 + couplingFactor * 0.2;
 }
