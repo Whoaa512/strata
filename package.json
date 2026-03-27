@@ -1,8 +1,6 @@
 {
   "name": "strata-v4",
   "module": "index.ts",
-  "type": "module",
-  "private": true,
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^25.5.0"
@@ -10,8 +8,9 @@
   "peerDependencies": {
     "typescript": "^5"
   },
+  "private": true,
+  "type": "module",
   "dependencies": {
-    "tree-sitter-wasms": "^0.1.13",
-    "web-tree-sitter": "^0.26.7"
+    "web-tree-sitter": "0.24.7"
   }
 }

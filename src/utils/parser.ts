@@ -1,30 +1,26 @@
 import type { TreeSitterParser } from "../types";
 import { join } from "node:path";
+import Parser from "web-tree-sitter";
 
-let _initPromise: Promise<typeof import("web-tree-sitter")> | null = null;
+let _initDone = false;
 
-async function initTreeSitter() {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const Parser = (await import("web-tree-sitter")).default;
-      await Parser.init();
-      return Parser;
-    })();
-  }
-  return _initPromise;
+async function ensureInit() {
+  if (_initDone) return;
+  await Parser.init();
+  _initDone = true;
 }
 
 export async function createParser(): Promise<TreeSitterParser> {
-  const Parser = await initTreeSitter();
+  await ensureInit();
 
-  const wasmDir = join(import.meta.dir, "../../node_modules/tree-sitter-wasms/out");
+  const grammarDir = join(import.meta.dir, "../../grammars");
 
   const tsParser = new Parser();
-  const tsLang = await Parser.Language.load(join(wasmDir, "tree-sitter-typescript.wasm"));
+  const tsLang = await Parser.Language.load(join(grammarDir, "tree-sitter-typescript.wasm"));
   tsParser.setLanguage(tsLang);
 
   const jsParser = new Parser();
-  const jsLang = await Parser.Language.load(join(wasmDir, "tree-sitter-javascript.wasm"));
+  const jsLang = await Parser.Language.load(join(grammarDir, "tree-sitter-javascript.wasm"));
   jsParser.setLanguage(jsLang);
 
   return {
