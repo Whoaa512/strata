@@ -126,6 +126,19 @@ function findMissedFromTemporalCoupling(
   }
 }
 
+export function buildCallerCountIndex(doc: StrataDoc): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const edge of doc.callGraph) {
+    counts.set(edge.callee, (counts.get(edge.callee) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function hubDampeningFactor(callerCount: number): number {
+  if (callerCount <= 1) return 1;
+  return 1 / (1 + Math.log2(callerCount));
+}
+
 function findMissedFromCallGraph(
   doc: StrataDoc,
   changedEntityIds: Set<string>,
@@ -133,6 +146,7 @@ function findMissedFromCallGraph(
   missed: Map<string, MissedFile>,
 ) {
   const entityById = new Map(doc.entities.map(e => [e.id, e]));
+  const callerCounts = buildCallerCountIndex(doc);
 
   for (const edge of doc.callGraph) {
     let targetId: string | undefined;
@@ -154,8 +168,13 @@ function findMissedFromCallGraph(
     const existing = missed.get(target.filePath);
     const isDirectDep = changedEntityIds.has(edge.caller);
 
+    const targetCallerCount = callerCounts.get(targetId) ?? 0;
+    const sourceCallerCount = callerCounts.get(sourceId) ?? 0;
+    const relevantCount = isDirectDep ? targetCallerCount : sourceCallerCount;
+    const dampening = hubDampeningFactor(relevantCount);
+
     if (existing) {
-      existing.confidence = Math.min(1, existing.confidence + 0.05);
+      existing.confidence = Math.min(1, existing.confidence + 0.05 * dampening);
       if (!existing.sources.includes(source.filePath)) {
         existing.sources.push(source.filePath);
       }
@@ -165,7 +184,7 @@ function findMissedFromCallGraph(
       missed.set(target.filePath, {
         filePath: target.filePath,
         reason: `${direction} changed function ${source.name}`,
-        confidence: baseConf,
+        confidence: baseConf * dampening,
         sources: [source.filePath],
       });
     }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeDiff, type DiffFile } from "../src/diff";
+import { analyzeDiff, buildCallerCountIndex, hubDampeningFactor, type DiffFile } from "../src/diff";
 import type { StrataDoc } from "../src/schema";
 
 function makeDoc(overrides: Partial<StrataDoc> = {}): StrataDoc {
@@ -106,5 +106,113 @@ describe("analyzeDiff", () => {
     expect(result.missedFiles.length).toBe(0);
     expect(result.missedTests.length).toBe(0);
     expect(result.affectedCallers.length).toBe(0);
+  });
+});
+
+describe("hubDampeningFactor", () => {
+  test("no callers returns 1", () => {
+    expect(hubDampeningFactor(0)).toBe(1);
+  });
+
+  test("single caller returns 1", () => {
+    expect(hubDampeningFactor(1)).toBe(1);
+  });
+
+  test("many callers returns dampened value", () => {
+    const factor16 = hubDampeningFactor(16);
+    expect(factor16).toBeLessThan(0.25);
+    expect(factor16).toBeGreaterThan(0);
+  });
+
+  test("dampening increases with caller count", () => {
+    expect(hubDampeningFactor(2)).toBeGreaterThan(hubDampeningFactor(8));
+    expect(hubDampeningFactor(8)).toBeGreaterThan(hubDampeningFactor(32));
+  });
+});
+
+describe("hub function dampening in analyzeDiff", () => {
+  function makeEntity(id: string, filePath: string) {
+    return {
+      id, name: id.split(":")[1], kind: "function" as const, filePath,
+      startLine: 1, endLine: 20,
+      metrics: { cyclomatic: 1, cognitive: 1, loc: 20, maxNestingDepth: 0, parameterCount: 1 },
+    };
+  }
+
+  test("hub functions with many callers get lower confidence than functions with few callers", () => {
+    const hubDoc: StrataDoc = {
+      version: "0.2.0",
+      analyzedAt: new Date().toISOString(),
+      rootDir: "/tmp/test",
+      entities: [
+        makeEntity("changed.ts:changed:1", "changed.ts"),
+        makeEntity("hub.ts:create:1", "hub.ts"),
+        makeEntity("leaf.ts:helper:1", "leaf.ts"),
+        ...Array.from({ length: 15 }, (_, i) =>
+          makeEntity(`caller${i}.ts:fn${i}:1`, `caller${i}.ts`)
+        ),
+      ],
+      callGraph: [
+        { caller: "changed.ts:changed:1", callee: "hub.ts:create:1" },
+        { caller: "changed.ts:changed:1", callee: "leaf.ts:helper:1" },
+        ...Array.from({ length: 15 }, (_, i) => ({
+          caller: `caller${i}.ts:fn${i}:1`, callee: "hub.ts:create:1",
+        })),
+      ],
+      churn: [],
+      temporalCoupling: [],
+      hotspots: [],
+      blastRadius: [],
+      changeRipple: [],
+      agentRisk: [],
+      errors: [],
+    };
+
+    const diff: DiffFile[] = [{ filePath: "changed.ts", status: "modified" }];
+    const result = analyzeDiff(hubDoc, diff);
+
+    const hubMissed = result.missedFiles.find(m => m.filePath === "hub.ts");
+    const leafMissed = result.missedFiles.find(m => m.filePath === "leaf.ts");
+
+    if (hubMissed && leafMissed) {
+      expect(hubMissed.confidence).toBeLessThan(leafMissed.confidence);
+    }
+
+    if (hubMissed) {
+      expect(hubMissed.confidence).toBeLessThan(0.35);
+    }
+  });
+
+  test("hub callers get dampened confidence when hub function changes", () => {
+    const entities = [
+      makeEntity("hub.ts:create:1", "hub.ts"),
+      ...Array.from({ length: 20 }, (_, i) =>
+        makeEntity(`caller${i}.ts:fn${i}:1`, `caller${i}.ts`)
+      ),
+    ];
+
+    const hubDoc: StrataDoc = {
+      version: "0.2.0",
+      analyzedAt: new Date().toISOString(),
+      rootDir: "/tmp/test",
+      entities,
+      callGraph: Array.from({ length: 20 }, (_, i) => ({
+        caller: `caller${i}.ts:fn${i}:1`, callee: "hub.ts:create:1",
+      })),
+      churn: [],
+      temporalCoupling: [],
+      hotspots: [],
+      blastRadius: [],
+      changeRipple: [],
+      agentRisk: [],
+      errors: [],
+    };
+
+    const diff: DiffFile[] = [{ filePath: "hub.ts", status: "modified" }];
+    const result = analyzeDiff(hubDoc, diff);
+
+    for (const missed of result.missedFiles) {
+      expect(missed.confidence).toBeLessThan(0.25);
+    }
   });
 });
