@@ -68,22 +68,6 @@ describe("EntitySchema", () => {
 describe("StrataDocSchema", () => {
   test("accepts minimal valid doc", () => {
     const result = StrataDocSchema.safeParse({
-      version: "0.1.0",
-      analyzedAt: "2026-03-28T00:00:00.000Z",
-      rootDir: "/tmp/project",
-      entities: [],
-      callGraph: [],
-      churn: [],
-      temporalCoupling: [],
-      hotspots: [],
-      blastRadius: [],
-      errors: [],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("rejects wrong version", () => {
-    const result = StrataDocSchema.safeParse({
       version: "0.2.0",
       analyzedAt: "2026-03-28T00:00:00.000Z",
       rootDir: "/tmp/project",
@@ -93,6 +77,26 @@ describe("StrataDocSchema", () => {
       temporalCoupling: [],
       hotspots: [],
       blastRadius: [],
+      changeRipple: [],
+      agentRisk: [],
+      errors: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects wrong version", () => {
+    const result = StrataDocSchema.safeParse({
+      version: "0.1.0",
+      analyzedAt: "2026-03-28T00:00:00.000Z",
+      rootDir: "/tmp/project",
+      entities: [],
+      callGraph: [],
+      churn: [],
+      temporalCoupling: [],
+      hotspots: [],
+      blastRadius: [],
+      changeRipple: [],
+      agentRisk: [],
       errors: [],
     });
     expect(result.success).toBe(false);
@@ -100,7 +104,7 @@ describe("StrataDocSchema", () => {
 
   test("rejects missing fields", () => {
     const result = StrataDocSchema.safeParse({
-      version: "0.1.0",
+      version: "0.2.0",
     });
     expect(result.success).toBe(false);
   });

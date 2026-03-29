@@ -57,8 +57,28 @@ export const FileErrorSchema = z.object({
   error: z.string(),
 });
 
+export const ChangeRippleSchema = z.object({
+  entityId: z.string(),
+  rippleScore: z.number().nonnegative(),
+  staticDeps: z.array(z.string()),
+  temporalDeps: z.array(z.string()),
+  implicitCouplings: z.array(z.object({
+    filePath: z.string(),
+    cochangeRate: z.number().min(0).max(1),
+  })),
+  affectedFiles: z.array(z.string()),
+});
+
+export const AgentRiskSchema = z.object({
+  entityId: z.string(),
+  rippleScore: z.number().nonnegative(),
+  contextCost: z.number().int().nonnegative(),
+  safetyRating: z.enum(["green", "yellow", "red"]),
+  riskFactors: z.array(z.string()),
+});
+
 export const StrataDocSchema = z.object({
-  version: z.literal("0.1.0"),
+  version: z.literal("0.2.0"),
   analyzedAt: z.string().datetime(),
   rootDir: z.string(),
   entities: z.array(EntitySchema),
@@ -67,6 +87,8 @@ export const StrataDocSchema = z.object({
   temporalCoupling: z.array(TemporalCouplingSchema),
   hotspots: z.array(HotspotSchema),
   blastRadius: z.array(BlastRadiusSchema),
+  changeRipple: z.array(ChangeRippleSchema),
+  agentRisk: z.array(AgentRiskSchema),
   errors: z.array(FileErrorSchema),
 });
 
@@ -78,4 +100,6 @@ export type TemporalCoupling = z.infer<typeof TemporalCouplingSchema>;
 export type Hotspot = z.infer<typeof HotspotSchema>;
 export type BlastRadius = z.infer<typeof BlastRadiusSchema>;
 export type FileError = z.infer<typeof FileErrorSchema>;
+export type ChangeRipple = z.infer<typeof ChangeRippleSchema>;
+export type AgentRisk = z.infer<typeof AgentRiskSchema>;
 export type StrataDoc = z.infer<typeof StrataDocSchema>;

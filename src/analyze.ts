@@ -6,6 +6,8 @@ import { createProgram, extract } from "./extract";
 import { getChurn, getTemporalCoupling, markStaticDependencies } from "./git";
 import { computeHotspots } from "./hotspot";
 import { computeAllBlastRadii } from "./blast";
+import { computeChangeRipple } from "./ripple";
+import { computeAgentRisk } from "./risk";
 
 export function analyze(rootDir: string): StrataDoc {
   const resolvedRoot = path.resolve(rootDir);
@@ -22,8 +24,11 @@ export function analyze(rootDir: string): StrataDoc {
     callGraph,
   );
 
+  const changeRipple = computeChangeRipple(entities, callGraph, temporalCoupling, blastRadius, churn);
+  const agentRisk = computeAgentRisk(entities, changeRipple, churn);
+
   const doc: StrataDoc = {
-    version: "0.1.0",
+    version: "0.2.0",
     analyzedAt: new Date().toISOString(),
     rootDir: resolvedRoot,
     entities,
@@ -32,6 +37,8 @@ export function analyze(rootDir: string): StrataDoc {
     temporalCoupling,
     hotspots,
     blastRadius,
+    changeRipple,
+    agentRisk,
     errors,
   };
 
