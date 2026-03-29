@@ -2,6 +2,8 @@
 import { analyze, writeSvFile } from "./analyze";
 import { renderReport } from "./render";
 import { renderBrief, renderFileBrief } from "./brief";
+import { getDiffFiles, analyzeDiff } from "./diff";
+import { renderDiffAnalysis } from "./diff-render";
 import path from "path";
 
 const args = process.argv.slice(2);
@@ -13,17 +15,26 @@ function usage() {
   strata - agent-centric code intelligence
 
   Usage:
-    strata brief [path]             Agent risk map for entire codebase
-    strata brief [path] <file>      Detailed briefing for a specific file
-    strata analyze <path>           Analyze codebase, write .strata/analysis.sv.json
-    strata report <path>            Analyze and print terminal report
-    strata explore <path>           Analyze and open interactive explorer
-    strata help                     Show this message
+    strata brief [path]                  Agent risk map for entire codebase
+    strata brief [path] <file>           Detailed briefing for a specific file
+    strata diff [path] [diffSpec]        Review a diff for missed files/tests
+    strata analyze <path>                Analyze codebase, write .strata/analysis.sv.json
+    strata report <path>                 Analyze and print terminal report
+    strata explore <path>                Analyze and open interactive explorer
+    strata help                          Show this message
+
+  Diff specs:
+    strata diff .                        Defaults to HEAD~1
+    strata diff . HEAD~3                 Last 3 commits
+    strata diff . main                   Compare current branch to main
+    strata diff . staged                 Staged changes only
+    strata diff . abc123..def456         Commit range
 
   Keyboard shortcuts (explorer):
     1-5    Switch overlays
     0      Reset view
     /      Search
+    WASD   Pan
     Esc    Clear search / close panel
 `);
 }
@@ -40,6 +51,24 @@ if (command === "explore") {
     env: { ...process.env, PORT: process.env.PORT ?? "4747" },
   });
   await proc.exited;
+  process.exit(0);
+}
+
+if (command === "diff") {
+  const diffTarget = args[1] ?? ".";
+  const diffSpec = args[2] ?? "HEAD~1";
+  const rootDir = path.resolve(diffTarget);
+  console.log(`Analyzing ${rootDir}...`);
+  const doc = analyze(rootDir);
+  const diffFiles = getDiffFiles(rootDir, diffSpec);
+
+  if (diffFiles.length === 0) {
+    console.log(`  No changes found for diff spec: ${diffSpec}`);
+    process.exit(0);
+  }
+
+  const analysis = analyzeDiff(doc, diffFiles);
+  console.log(renderDiffAnalysis(analysis, diffSpec));
   process.exit(0);
 }
 
