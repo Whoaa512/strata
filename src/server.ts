@@ -5,7 +5,7 @@ import fs from "fs";
 
 const target = process.argv[2] ?? ".";
 const rootDir = path.resolve(target);
-const port = parseInt(process.env.PORT ?? "3000", 10);
+const port = parseInt(process.env.PORT ?? "4747", 10);
 
 console.log(`Analyzing ${rootDir}...`);
 const start = performance.now();
@@ -16,7 +16,7 @@ console.log(`Analysis complete: ${doc.entities.length} entities, ${doc.callGraph
 
 const webDir = path.join(import.meta.dir, "..", "web");
 
-Bun.serve({
+const server = Bun.serve({
   port,
   fetch(req) {
     const url = new URL(req.url);
@@ -48,4 +48,6 @@ Bun.serve({
   },
 });
 
-console.log(`Explorer running at http://localhost:${port}`);
+const url = `http://localhost:${server.port}`;
+console.log(`Explorer running at ${url}`);
+Bun.spawn(["open", url]);

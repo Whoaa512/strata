@@ -170,58 +170,67 @@ function buildTree() {
     }
   }
 
-  packed = packCircles(root, 0, 0, Math.min(window.innerWidth, window.innerHeight) * 0.45);
+  collapseChains(root);
+  packed = packCircles(root, 0, 0);
 }
 
-// --- Circle Packing (front-chain algorithm) ---
+function collapseChains(node) {
+  for (const child of node.children) collapseChains(child);
+
+  while (node.children.length === 1 && node.entities.length === 0 && node.name !== 'root') {
+    const only = node.children[0];
+    node.name = node.name + '/' + only.name;
+    node.path = only.path;
+    node.children = only.children;
+    node.entities = only.entities;
+  }
+}
+
+// --- Circle Packing (D3-style front-chain, O(n²) worst case but fast in practice) ---
 function packSiblings(radii) {
   const n = radii.length;
   if (n === 0) return [];
   if (n === 1) return [{ x: 0, y: 0, r: radii[0] }];
-  if (n === 2) {
-    const r0 = radii[0], r1 = radii[1];
-    return [{ x: -r1, y: 0, r: r0 }, { x: r0, y: 0, r: r1 }];
-  }
 
   const circles = radii.map(r => ({ x: 0, y: 0, r }));
-
-  // Place first two
   const a = circles[0], b = circles[1];
   a.x = -b.r; b.x = a.r;
 
-  // Place third tangent to first two
-  const c = circles[2];
-  placeCircle(a, b, c);
+  if (n === 2) return circles;
 
-  // Front chain
+  placeCircle(a, b, circles[2]);
+
+  // Linked list for the front chain
+  let front = [0, 1, 2];
+
   for (let i = 3; i < n; i++) {
     const ci = circles[i];
-    let bestA = null, bestB = null, bestDist = Infinity;
+    let bestScore = Infinity, bestJ = 0;
 
-    // Try all adjacent pairs in existing circles
-    for (let j = 0; j < i; j++) {
-      for (let k = j + 1; k < i; k++) {
-        placeCircle(circles[j], circles[k], ci);
-        let overlaps = false;
-        for (let m = 0; m < i; m++) {
-          if (m === j || m === k) continue;
-          const dx = ci.x - circles[m].x, dy = ci.y - circles[m].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < ci.r + circles[m].r - 1e-6) { overlaps = true; break; }
+    for (let j = 0; j < front.length; j++) {
+      const k = (j + 1) % front.length;
+      const fj = circles[front[j]], fk = circles[front[k]];
+      placeCircle(fj, fk, ci);
+
+      let overlaps = false;
+      for (let m = 0; m < front.length; m++) {
+        if (m === j || m === k) continue;
+        const fm = circles[front[m]];
+        const dx = ci.x - fm.x, dy = ci.y - fm.y;
+        if (dx * dx + dy * dy < (ci.r + fm.r - 0.5) * (ci.r + fm.r - 0.5)) {
+          overlaps = true; break;
         }
-        if (!overlaps) {
-          const dist = ci.x * ci.x + ci.y * ci.y;
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestA = j; bestB = k;
-          }
-        }
+      }
+
+      if (!overlaps) {
+        const score = ci.x * ci.x + ci.y * ci.y;
+        if (score < bestScore) { bestScore = score; bestJ = j; }
       }
     }
 
-    if (bestA !== null) {
-      placeCircle(circles[bestA], circles[bestB], ci);
-    }
+    const bestK = (bestJ + 1) % front.length;
+    placeCircle(circles[front[bestJ]], circles[front[bestK]], ci);
+    front.splice(bestK, 0, i);
   }
 
   return circles;
@@ -233,9 +242,8 @@ function placeCircle(a, b, c) {
   const d = Math.sqrt(dx * dx + dy * dy);
   if (d < 1e-10) { c.x = a.x + da; c.y = a.y; return; }
 
-  const cosA = (da * da + d * d - db * db) / (2 * da * d);
-  const clampedCos = Math.max(-1, Math.min(1, cosA));
-  const angle = Math.atan2(dy, dx) - Math.acos(clampedCos);
+  const cosA = Math.max(-1, Math.min(1, (da * da + d * d - db * db) / (2 * da * d)));
+  const angle = Math.atan2(dy, dx) - Math.acos(cosA);
   c.x = a.x + Math.cos(angle) * da;
   c.y = a.y + Math.sin(angle) * da;
 }
@@ -244,14 +252,26 @@ function encloseCircles(circles) {
   if (circles.length === 0) return { x: 0, y: 0, r: 0 };
   if (circles.length === 1) return { x: circles[0].x, y: circles[0].y, r: circles[0].r };
 
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const c of circles) {
-    if (c.x - c.r < minX) minX = c.x - c.r;
-    if (c.x + c.r > maxX) maxX = c.x + c.r;
-    if (c.y - c.r < minY) minY = c.y - c.r;
-    if (c.y + c.r > maxY) maxY = c.y + c.r;
+  // Iterative minimum enclosing circle
+  let cx = 0, cy = 0;
+  for (const c of circles) { cx += c.x; cy += c.y; }
+  cx /= circles.length; cy /= circles.length;
+
+  // Refine center by shifting toward the farthest circle
+  for (let iter = 0; iter < 20; iter++) {
+    let maxD = 0, farthest = null;
+    for (const c of circles) {
+      const d = Math.sqrt((c.x - cx) ** 2 + (c.y - cy) ** 2) + c.r;
+      if (d > maxD) { maxD = d; farthest = c; }
+    }
+    if (!farthest) break;
+    const dx = farthest.x - cx, dy = farthest.y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.01) break;
+    cx += dx * 0.1;
+    cy += dy * 0.1;
   }
-  let cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+
   let r = 0;
   for (const c of circles) {
     const d = Math.sqrt((c.x - cx) ** 2 + (c.y - cy) ** 2) + c.r;
@@ -260,66 +280,71 @@ function encloseCircles(circles) {
   return { x: cx, y: cy, r };
 }
 
-function packCircles(node, cx, cy, radius) {
+function packCircles(node, cx, cy) {
   const allChildren = [
     ...node.children.map(c => ({ type: 'dir', node: c })),
     ...node.entities.map(e => ({ type: 'entity', entity: e })),
   ];
 
   const circle = {
-    x: cx, y: cy, r: radius,
+    x: cx, y: cy, r: 0,
     name: node.name, path: node.path, depth: node.depth,
     type: 'group', node, children: [],
   };
 
-  if (allChildren.length === 0) return circle;
+  if (allChildren.length === 0) { circle.r = 10; return circle; }
 
-  // Recursively pack children first to get their sizes
+  // Recursively pack children first (bottom-up)
   const childPacked = allChildren.map(item => {
     if (item.type === 'entity') {
       const r = Math.max(6, Math.sqrt(item.entity.metrics.loc) * 3);
-      return { type: 'entity', entity: item.entity, r, x: 0, y: 0 };
+      return { type: 'entity', entity: item.entity, r, x: 0, y: 0, name: item.entity.name, depth: node.depth + 1, path: item.entity.filePath };
     }
-    const sub = packCircles(item.node, 0, 0, 0);
-    return sub;
+    return packCircles(item.node, 0, 0);
   });
 
   // Sort by radius descending for better packing
-  const indices = childPacked.map((_, i) => i);
-  indices.sort((a, b) => childPacked[b].r - childPacked[a].r);
-  const sorted = indices.map(i => childPacked[i]);
-  const radii = sorted.map(c => c.r);
+  childPacked.sort((a, b) => b.r - a.r);
+  const radii = childPacked.map(c => c.r);
 
-  // Pack siblings
+  // Pack siblings to get relative positions
   const positions = packSiblings(radii);
   const enclosure = encloseCircles(positions);
-  const padding = 1.15;
-  const actualR = enclosure.r * padding;
+  const padding = 1.12;
 
-  // Scale to fit parent or use natural size
-  const useRadius = radius > 0 ? radius : actualR;
-  const scale = radius > 0 ? radius / (actualR || 1) : 1;
+  // Position children relative to this node's center
+  for (let i = 0; i < childPacked.length; i++) {
+    const offX = positions[i].x - enclosure.x;
+    const offY = positions[i].y - enclosure.y;
 
-  const childCircles = sorted.map((child, i) => {
-    const px = cx + (positions[i].x - enclosure.x) * scale;
-    const py = cy + (positions[i].y - enclosure.y) * scale;
-    const pr = positions[i].r * scale;
-
-    if (child.type === 'entity') {
-      return {
-        x: px, y: py, r: pr,
-        name: child.entity.name, type: 'entity', entity: child.entity,
-        depth: node.depth + 1, path: child.entity.filePath,
-      };
+    if (childPacked[i].type === 'entity') {
+      childPacked[i].x = cx + offX;
+      childPacked[i].y = cy + offY;
+    } else {
+      translateTree(childPacked[i], cx + offX - childPacked[i].x, cy + offY - childPacked[i].y);
     }
+  }
 
-    // Repack subtree at new position and size
-    return packCircles(child.node, px, py, pr);
-  });
-
-  circle.children = childCircles;
-  circle.r = useRadius;
+  circle.children = childPacked;
+  circle.r = enclosure.r * (1 + 0.08 / Math.max(1, Math.log2(allChildren.length)));
   return circle;
+}
+
+function translateTree(node, dx, dy) {
+  node.x += dx;
+  node.y += dy;
+  if (node.children) {
+    for (const child of node.children) translateTree(child, dx, dy);
+  }
+}
+
+function scaleTree(node, cx, cy, scale) {
+  node.x = cx + (node.x - cx) * scale;
+  node.y = cy + (node.y - cy) * scale;
+  node.r *= scale;
+  if (node.children) {
+    for (const child of node.children) scaleTree(child, cx, cy, scale);
+  }
 }
 
 function countEntities(node) {
@@ -520,8 +545,12 @@ function animateTo(x, y, zoom) {
 
 function resetView() {
   if (!packed) return;
-  const zoom = Math.min(window.innerWidth, window.innerHeight - 48) / (packed.r * 2.2);
-  animateTo(packed.x, packed.y, zoom);
+  // Find the deepest group with multiple children — that's where the interesting stuff is
+  let target = packed;
+  while (target.children?.length === 1 && target.children[0].type === 'group') {
+    target = target.children[0];
+  }
+  zoomToNode(target);
   zoomStack = [];
   updateBreadcrumb();
 }

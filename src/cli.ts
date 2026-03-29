@@ -34,7 +34,7 @@ if (command === "explore") {
   const serverPath = path.join(import.meta.dir, "server.ts");
   const proc = Bun.spawn(["bun", serverPath, target], {
     stdio: ["inherit", "inherit", "inherit"],
-    env: { ...process.env, PORT: process.env.PORT ?? "3000" },
+    env: { ...process.env, PORT: process.env.PORT ?? "4747" },
   });
   await proc.exited;
   process.exit(0);
