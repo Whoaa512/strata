@@ -14,12 +14,29 @@ function usage() {
   Usage:
     strata analyze <path>   Analyze codebase, write .strata/analysis.sv.json
     strata report <path>    Analyze and print terminal report
+    strata explore <path>   Analyze and open interactive explorer
     strata help             Show this message
+
+  Keyboard shortcuts (explorer):
+    1-5    Switch overlays
+    0      Reset view
+    /      Search
+    Esc    Clear search / close panel
 `);
 }
 
 if (!command || command === "help" || command === "--help") {
   usage();
+  process.exit(0);
+}
+
+if (command === "explore") {
+  const serverPath = path.join(import.meta.dir, "server.ts");
+  const proc = Bun.spawn(["bun", serverPath, target], {
+    stdio: ["inherit", "inherit", "inherit"],
+    env: { ...process.env, PORT: process.env.PORT ?? "3000" },
+  });
+  await proc.exited;
   process.exit(0);
 }
 
