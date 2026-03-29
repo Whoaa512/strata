@@ -109,20 +109,20 @@ canvas:active { cursor: grabbing; }
 <div id="toolbar">
   <span class="logo">STRATA</span>
   <div class="sep"></div>
-  <button class="overlay-btn active" data-overlay="complexity">Complexity
-    <span class="btn-tooltip"><strong>Cognitive Complexity</strong><br>Colors by how hard each function is to understand. <kbd>1</kbd></span>
+  <button class="overlay-btn active" data-overlay="safety">Safety
+    <span class="btn-tooltip"><strong>Agent Safety Rating</strong><br>Green = safe to send agents. Yellow = review carefully. Red = needs briefing. <kbd>1</kbd></span>
   </button>
-  <button class="overlay-btn" data-overlay="churn">Churn
-    <span class="btn-tooltip"><strong>File Churn</strong><br>Colors by how often files change (git commits). Hot = frequently modified. <kbd>2</kbd></span>
+  <button class="overlay-btn" data-overlay="ripple">Ripple
+    <span class="btn-tooltip"><strong>Change Ripple</strong><br>How far changes cascade. High = touching this affects many files. <kbd>2</kbd></span>
   </button>
-  <button class="overlay-btn" data-overlay="hotspot">Hotspots
-    <span class="btn-tooltip"><strong>Hotspots</strong><br>Combines complexity × churn. High score = complex code that changes often. <kbd>3</kbd></span>
+  <button class="overlay-btn" data-overlay="context">Context Cost
+    <span class="btn-tooltip"><strong>Context Cost</strong><br>Estimated tokens an agent needs to safely work here. <kbd>3</kbd></span>
+  </button>
+  <button class="overlay-btn" data-overlay="implicit">Implicit Coupling
+    <span class="btn-tooltip"><strong>Implicit Couplings</strong><br>Files that co-change without import links. Agents will miss these. <kbd>4</kbd></span>
   </button>
   <button class="overlay-btn" data-overlay="blast">Blast Radius
-    <span class="btn-tooltip"><strong>Blast Radius</strong><br>Colors by how many callers are transitively affected if this function breaks. <kbd>4</kbd></span>
-  </button>
-  <button class="overlay-btn" data-overlay="coupling">Coupling
-    <span class="btn-tooltip"><strong>Coupling</strong><br>Colors by cross-module dependencies. High = tightly coupled. <kbd>5</kbd></span>
+    <span class="btn-tooltip"><strong>Blast Radius</strong><br>Transitive callers affected if this function breaks. <kbd>5</kbd></span>
   </button>
   <input id="search" type="text" placeholder="Search functions... (/ to focus, Enter to zoom)">
 </div>
@@ -137,15 +137,12 @@ canvas:active { cursor: grabbing; }
 </div>
 
 <div id="legend">
-  <div class="legend-title">Legend</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(30,30,50,0.6);border-color:rgba(80,80,120,0.5)"></div> Directory group</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(40,180,80,0.5)"></div> Function / entity</div>
+  <div class="legend-title">Agent Risk</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(40,180,80,0.5)"></div> Safe — send any agent</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,180,40,0.5)"></div> Caution — review output</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,50,50,0.5)"></div> Danger — needs briefing</div>
   <div class="legend-row" style="margin-top:4px"><span style="color:#666">Circle size</span> = lines of code</div>
-  <div class="legend-row" style="margin-top:4px"><span style="color:#666">Color intensity</span> = overlay metric:</div>
-  <div class="legend-row" style="margin-left:8px">
-    <div class="legend-grad" style="background:linear-gradient(to right,rgba(40,180,160,0.5),rgba(240,40,40,0.8))"></div>
-    <span style="color:#666">low → high</span>
-  </div>
+  <div class="legend-row" style="margin-top:4px"><span style="color:#666">Color</span> = selected overlay metric</div>
 </div>
 <div id="breadcrumb"></div>
 <div id="stats"></div>
@@ -166,7 +163,7 @@ let targetCamera = { x: 0, y: 0, zoom: 1 };
 let animating = false;
 let hoveredNode = null;
 let selectedNode = null;
-let currentOverlay = 'complexity';
+let currentOverlay = 'safety';
 let searchTerm = '';
 let zoomStack = [];
 let blastHighlight = new Set();
@@ -177,6 +174,8 @@ let overlayMaxCache = {};
 let churnMap = new Map();
 let hotspotMap = new Map();
 let blastMap = new Map();
+let riskMap = new Map();
+let rippleMap = new Map();
 
 function scheduleRender() {
   if (renderScheduled) return;
@@ -185,17 +184,19 @@ function scheduleRender() {
 }
 
 function precomputeOverlayData() {
-  churnMap.clear(); hotspotMap.clear(); blastMap.clear();
+  churnMap.clear(); hotspotMap.clear(); blastMap.clear(); riskMap.clear(); rippleMap.clear();
   for (const c of data.churn) churnMap.set(c.filePath, c);
   for (const h of data.hotspots) hotspotMap.set(h.entityId, h);
   for (const b of data.blastRadius) blastMap.set(b.entityId, b);
+  if (data.agentRisk) for (const r of data.agentRisk) riskMap.set(r.entityId, r);
+  if (data.changeRipple) for (const r of data.changeRipple) rippleMap.set(r.entityId, r);
 
   overlayMaxCache = {
-    complexity: Math.max(1, ...data.entities.map(x => x.metrics.cognitive)),
-    churn: Math.max(1, ...data.churn.map(c => c.commits)),
-    hotspot: 1,
+    safety: 1,
+    ripple: Math.max(1, ...(data.changeRipple || []).map(r => r.rippleScore)),
+    context: Math.max(1, ...(data.agentRisk || []).map(r => r.contextCost)),
+    implicit: Math.max(1, ...(data.changeRipple || []).map(r => r.implicitCouplings.length)),
     blast: Math.max(1, ...data.blastRadius.map(b => b.radius)),
-    coupling: Math.max(1, ...data.entities.map(x => x.metrics.cognitive)),
   };
 }
 
@@ -426,30 +427,39 @@ function countEntities(node) {
 const GROUP_FILL = 'rgba(30, 30, 50, 0.4)';
 const GROUP_STROKE = 'rgba(80, 80, 120, 0.3)';
 
+const SAFETY_COLORS = {
+  green:  { fill: 'rgba(40, 180, 80, 0.45)', stroke: 'rgba(40, 180, 80, 0.7)' },
+  yellow: { fill: 'rgba(220, 180, 40, 0.45)', stroke: 'rgba(220, 180, 40, 0.7)' },
+  red:    { fill: 'rgba(220, 50, 50, 0.5)', stroke: 'rgba(220, 50, 50, 0.8)' },
+};
+
 function getColor(circle, overlay) {
   if (circle.type !== 'entity') {
     return { fill: GROUP_FILL, stroke: GROUP_STROKE };
   }
 
   const e = circle.entity;
+  const risk = riskMap.get(e.id);
+  const ripple = rippleMap.get(e.id);
+
+  if (overlay === 'safety') {
+    const rating = risk ? risk.safetyRating : 'green';
+    return SAFETY_COLORS[rating];
+  }
+
   let value = 0;
   const max = overlayMaxCache[overlay] || 1;
 
   switch (overlay) {
-    case 'complexity':
-    case 'coupling':
-      value = e.metrics.cognitive;
+    case 'ripple':
+      value = ripple ? ripple.rippleScore : 0;
       break;
-    case 'churn': {
-      const churn = churnMap.get(e.filePath);
-      value = churn ? churn.commits : 0;
+    case 'context':
+      value = risk ? risk.contextCost : 0;
       break;
-    }
-    case 'hotspot': {
-      const hs = hotspotMap.get(e.id);
-      value = hs ? hs.score : 0;
+    case 'implicit':
+      value = ripple ? ripple.implicitCouplings.length : 0;
       break;
-    }
     case 'blast': {
       const br = blastMap.get(e.id);
       value = br ? br.radius : 0;
@@ -653,21 +663,23 @@ function showTooltip(node, mx, my) {
   let html = '';
   if (node.type === 'entity') {
     const e = node.entity;
-    const hs = hotspotMap.get(e.id);
+    const risk = riskMap.get(e.id);
+    const ripple = rippleMap.get(e.id);
     const br = blastMap.get(e.id);
-    const churn = churnMap.get(e.filePath);
+
+    const safetyColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
+    const safetyLabel = { green: 'SAFE', yellow: 'CAUTION', red: 'DANGER' };
+    const rating = risk ? risk.safetyRating : 'green';
 
     html = `
       <div class="tt-title">${e.name}</div>
       <div class="tt-path">${e.filePath}:${e.startLine}</div>
-      <div class="tt-row"><span class="tt-label">Cognitive</span><span class="tt-value">${e.metrics.cognitive}</span></div>
-      <div class="tt-row"><span class="tt-label">Cyclomatic</span><span class="tt-value">${e.metrics.cyclomatic}</span></div>
-      <div class="tt-row"><span class="tt-label">LOC</span><span class="tt-value">${e.metrics.loc}</span></div>
-      <div class="tt-row"><span class="tt-label">Nesting</span><span class="tt-value">${e.metrics.maxNestingDepth}</span></div>
-      <div class="tt-row"><span class="tt-label">Params</span><span class="tt-value">${e.metrics.parameterCount}</span></div>
-      ${churn ? `<div class="tt-row"><span class="tt-label">Churn</span><span class="tt-value">${churn.commits} commits</span></div>` : ''}
-      ${hs ? `<div class="tt-row"><span class="tt-label">Hotspot</span><span class="tt-value">${hs.score.toFixed(3)}</span></div>` : ''}
+      <div class="tt-row"><span class="tt-label">Safety</span><span class="tt-value" style="color:${safetyColor[rating]}">${safetyLabel[rating]}</span></div>
+      ${risk ? `<div class="tt-row"><span class="tt-label">Context cost</span><span class="tt-value">~${risk.contextCost >= 1000 ? (risk.contextCost / 1000).toFixed(1) + 'k' : risk.contextCost} tokens</span></div>` : ''}
+      ${ripple ? `<div class="tt-row"><span class="tt-label">Change ripple</span><span class="tt-value">${ripple.affectedFiles.length} files</span></div>` : ''}
+      ${ripple && ripple.implicitCouplings.length > 0 ? `<div class="tt-row"><span class="tt-label">Implicit couplings</span><span class="tt-value" style="color:#facc15">${ripple.implicitCouplings.length}</span></div>` : ''}
       ${br ? `<div class="tt-row"><span class="tt-label">Blast radius</span><span class="tt-value">${br.radius} callers</span></div>` : ''}
+      ${risk && risk.riskFactors.length > 0 ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #2a2a3a;color:#facc15;font-size:11px">${risk.riskFactors.map(f => '⚠ ' + f).join('<br>')}</div>` : ''}
     `;
   } else {
     const count = countEntities(node.node);
@@ -698,21 +710,52 @@ function showDetail(node) {
   const callees = data.callGraph.filter(edge => edge.caller === e.id);
   const callers = data.callGraph.filter(edge => edge.callee === e.id);
 
+  const risk = riskMap.get(e.id);
+  const ripple = rippleMap.get(e.id);
+  const safetyColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
+  const safetyLabel = { green: '● SAFE', yellow: '● CAUTION', red: '● DANGER' };
+  const rating = risk ? risk.safetyRating : 'green';
+
   let html = `
     <div class="dp-title">${e.name}</div>
     <div class="dp-path">${e.filePath}:${e.startLine}-${e.endLine} · ${e.kind}</div>
+    <div style="font-size:14px;font-weight:700;color:${safetyColor[rating]};margin:8px 0">${safetyLabel[rating]}</div>
 
     <div class="dp-section">
-      <h3>Metrics</h3>
-      <div class="dp-metric"><span>Cognitive Complexity</span><span>${e.metrics.cognitive}</span></div>
-      <div class="dp-metric"><span>Cyclomatic Complexity</span><span>${e.metrics.cyclomatic}</span></div>
-      <div class="dp-metric"><span>Lines of Code</span><span>${e.metrics.loc}</span></div>
-      <div class="dp-metric"><span>Max Nesting</span><span>${e.metrics.maxNestingDepth}</span></div>
-      <div class="dp-metric"><span>Parameters</span><span>${e.metrics.parameterCount}</span></div>
-      ${hs ? `<div class="dp-metric"><span>Hotspot Score</span><span>${hs.score.toFixed(3)}</span></div>` : ''}
-      ${br ? `<div class="dp-metric"><span>Blast Radius</span><span>${br.radius}</span></div>` : ''}
+      <h3>Agent Risk</h3>
+      ${risk ? `<div class="dp-metric"><span>Context Cost</span><span>~${risk.contextCost >= 1000 ? (risk.contextCost / 1000).toFixed(1) + 'k' : risk.contextCost} tokens</span></div>` : ''}
+      ${ripple ? `<div class="dp-metric"><span>Change Ripple</span><span>${ripple.affectedFiles.length} files</span></div>` : ''}
+      ${ripple ? `<div class="dp-metric"><span>Implicit Couplings</span><span style="color:${ripple.implicitCouplings.length > 0 ? '#facc15' : '#666'}">${ripple.implicitCouplings.length}</span></div>` : ''}
+      ${br ? `<div class="dp-metric"><span>Blast Radius</span><span>${br.radius} callers</span></div>` : ''}
+      <div class="dp-metric"><span>LOC</span><span>${e.metrics.loc}</span></div>
     </div>
   `;
+
+  if (risk && risk.riskFactors.length > 0) {
+    html += `<div class="dp-section"><h3>Risk Factors</h3>`;
+    for (const f of risk.riskFactors) {
+      html += `<div style="padding:4px 0;color:#facc15;font-size:12px">⚠ ${f}</div>`;
+    }
+    html += '</div>';
+  }
+
+  if (ripple && ripple.affectedFiles.length > 0) {
+    html += `<div class="dp-section"><h3>Change Ripple (${ripple.affectedFiles.length} files)</h3>`;
+    for (const f of ripple.affectedFiles) {
+      const isImplicit = ripple.implicitCouplings.some(ic => ic.filePath === f);
+      html += `<div class="dp-caller" style="${isImplicit ? 'border-left:2px solid #facc15;' : ''}">${f}${isImplicit ? ' <span style="color:#facc15;font-size:10px">implicit</span>' : ''}</div>`;
+    }
+    html += '</div>';
+  }
+
+  if (ripple && ripple.implicitCouplings.length > 0) {
+    html += `<div class="dp-section"><h3>Implicit Couplings</h3>`;
+    html += `<div style="color:#888;font-size:11px;margin-bottom:8px">Files that co-change without import links — agents will miss these</div>`;
+    for (const ic of ripple.implicitCouplings) {
+      html += `<div class="dp-caller" style="border-left:2px solid #facc15">${ic.filePath} <span style="color:#facc15;font-size:10px">${Math.round(ic.cochangeRate * 100)}% co-change</span></div>`;
+    }
+    html += '</div>';
+  }
 
   if (callers.length > 0) {
     html += `<div class="dp-section"><h3>Called By (${callers.length})</h3>`;
@@ -957,7 +1000,7 @@ document.addEventListener('keydown', (e) => {
   if (document.activeElement === searchInput) return;
   if (e.key === '0') resetView();
   if (e.key >= '1' && e.key <= '5') {
-    const overlays = ['complexity', 'churn', 'hotspot', 'blast', 'coupling'];
+    const overlays = ['safety', 'ripple', 'context', 'implicit', 'blast'];
     const idx = parseInt(e.key) - 1;
     if (idx < overlays.length) {
       currentOverlay = overlays[idx];
