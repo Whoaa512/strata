@@ -66,7 +66,10 @@ export function analyzeDiff(doc: StrataDoc, diffFiles: DiffFile[]): DiffAnalysis
   findMissedFromCallGraph(doc, changedEntityIds, changedPaths, missedMap);
   findMissedFromRipple(doc, changedEntityIds, changedPaths, missedMap);
 
+  boostMultiSignalFiles(missedMap);
+
   const allMissed = Array.from(missedMap.values())
+    .filter(m => m.confidence >= 0.4)
     .sort((a, b) => b.confidence - a.confidence);
 
   const missedTests = allMissed.filter(m => isTestFile(m.filePath));
@@ -79,8 +82,8 @@ export function analyzeDiff(doc: StrataDoc, diffFiles: DiffFile[]): DiffAnalysis
   return {
     changedFiles: diffFiles,
     changedEntities,
-    missedFiles,
-    missedTests,
+    missedFiles: missedFiles.slice(0, 15),
+    missedTests: missedTests.slice(0, 10),
     affectedCallers,
   };
 }
@@ -149,17 +152,20 @@ function findMissedFromCallGraph(
     if (!target || !source || changedPaths.has(target.filePath)) continue;
 
     const existing = missed.get(target.filePath);
+    const isDirectDep = changedEntityIds.has(edge.caller);
+
     if (existing) {
-      existing.confidence = Math.min(1, existing.confidence + 0.1);
+      existing.confidence = Math.min(1, existing.confidence + 0.05);
       if (!existing.sources.includes(source.filePath)) {
         existing.sources.push(source.filePath);
       }
     } else {
-      const direction = changedEntityIds.has(edge.caller) ? "calls" : "called by";
+      const direction = isDirectDep ? "calls" : "called by";
+      const baseConf = isDirectDep ? 0.35 : 0.25;
       missed.set(target.filePath, {
         filePath: target.filePath,
         reason: `${direction} changed function ${source.name}`,
-        confidence: 0.4,
+        confidence: baseConf,
         sources: [source.filePath],
       });
     }
@@ -253,6 +259,19 @@ function findAffectedCallers(
   }
 
   return callers;
+}
+
+function boostMultiSignalFiles(missed: Map<string, MissedFile>) {
+  for (const m of missed.values()) {
+    const hasTemporalSignal = m.reason.includes("co-change");
+    const hasCallSignal = m.reason.includes("calls") || m.reason.includes("called by");
+    if (hasTemporalSignal && m.sources.length > 1) {
+      m.confidence = Math.min(1, m.confidence + 0.15);
+    }
+    if (hasCallSignal && m.sources.length >= 3) {
+      m.confidence = Math.min(1, m.confidence + 0.1);
+    }
+  }
 }
 
 function isTestFile(path: string): boolean {

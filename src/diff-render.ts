@@ -56,9 +56,6 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   }
 
   if (analysis.affectedCallers.length > 0) {
-    lines.push(`${BOLD}${CYAN}  Affected Callers${RESET} ${DIM}(${analysis.affectedCallers.length} functions may be impacted)${RESET}`);
-    lines.push("");
-
     const byFile = new Map<string, string[]>();
     for (const c of analysis.affectedCallers) {
       let names = byFile.get(c.filePath);
@@ -66,8 +63,19 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
       names.push(c.name);
     }
 
-    for (const [file, names] of byFile) {
-      lines.push(`    ${DIM}${file}:${RESET} ${names.join(", ")}`);
+    const fileEntries = Array.from(byFile.entries());
+    const shown = fileEntries.slice(0, 10);
+    const remaining = fileEntries.length - shown.length;
+
+    lines.push(`${BOLD}${CYAN}  Affected Callers${RESET} ${DIM}(${analysis.affectedCallers.length} functions across ${fileEntries.length} files)${RESET}`);
+    lines.push("");
+
+    for (const [file, names] of shown) {
+      const nameStr = names.length > 4 ? `${names.slice(0, 4).join(", ")} +${names.length - 4}` : names.join(", ");
+      lines.push(`    ${DIM}${file}:${RESET} ${nameStr}`);
+    }
+    if (remaining > 0) {
+      lines.push(`    ${DIM}...and ${remaining} more files${RESET}`);
     }
     lines.push("");
   }

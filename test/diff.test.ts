@@ -45,12 +45,13 @@ describe("analyzeDiff", () => {
     expect(missedPaths).toContain("c.ts");
   });
 
-  test("identifies missed files from call graph", () => {
+  test("call-graph-only connections need multiple signals to surface", () => {
     const diff: DiffFile[] = [{ filePath: "a.ts", status: "modified" }];
     const result = analyzeDiff(doc, diff);
 
     const missedPaths = result.missedFiles.map(m => m.filePath);
-    expect(missedPaths).toContain("b.ts");
+    expect(missedPaths).toContain("c.ts");
+    expect(missedPaths).not.toContain("b.ts");
   });
 
   test("does not flag already-changed files as missed", () => {
