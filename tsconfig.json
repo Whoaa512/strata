@@ -6,10 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "declaration": true,
-    "types": ["bun-types"]
+    "noEmit": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

@@ -1,0 +1,49 @@
+#!/usr/bin/env bun
+import { analyze, writeSvFile } from "./analyze";
+import { renderReport } from "./render";
+import path from "path";
+
+const args = process.argv.slice(2);
+const command = args[0];
+const target = args[1] ?? ".";
+
+function usage() {
+  console.log(`
+  strata - code complexity analyzer
+
+  Usage:
+    strata analyze <path>   Analyze codebase, write .strata/analysis.sv.json
+    strata report <path>    Analyze and print terminal report
+    strata help             Show this message
+`);
+}
+
+if (!command || command === "help" || command === "--help") {
+  usage();
+  process.exit(0);
+}
+
+if (command !== "analyze" && command !== "report") {
+  console.error(`Unknown command: ${command}`);
+  usage();
+  process.exit(1);
+}
+
+const rootDir = path.resolve(target);
+const start = performance.now();
+
+console.log(`Analyzing ${rootDir}...`);
+const doc = analyze(rootDir);
+const elapsed = ((performance.now() - start) / 1000).toFixed(2);
+
+if (command === "analyze") {
+  const outPath = writeSvFile(doc, rootDir);
+  console.log(`Done in ${elapsed}s. Output: ${outPath}`);
+  console.log(`  ${doc.entities.length} entities, ${doc.callGraph.length} call edges, ${doc.errors.length} errors`);
+}
+
+if (command === "report") {
+  const outPath = writeSvFile(doc, rootDir);
+  console.log(renderReport(doc));
+  console.log(`\n  ${outPath} written (${elapsed}s)`);
+}
