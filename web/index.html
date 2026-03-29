@@ -760,14 +760,18 @@ canvas.addEventListener('mousemove', (e) => {
 }, { capture: true });
 
 canvas.addEventListener('mouseup', (e) => {
-  if (!isDragging && hoveredNode) {
-    if (hoveredNode.type === 'group' && hoveredNode.children?.length > 0) {
-      zoomStack.push(hoveredNode);
-      zoomToNode(hoveredNode);
-      updateBreadcrumb();
-    } else if (hoveredNode.type === 'entity') {
-      selectedNode = hoveredNode;
-      showDetail(hoveredNode);
+  if (!isDragging) {
+    const { x, y } = screenToWorld(e.clientX, e.clientY - 48);
+    const clicked = hitTest(x, y, packed);
+    if (clicked && clicked.name !== 'root') {
+      if (clicked.type === 'group' && clicked.children?.length > 0) {
+        zoomStack.push(clicked);
+        zoomToNode(clicked);
+        updateBreadcrumb();
+      } else if (clicked.type === 'entity') {
+        selectedNode = clicked;
+        showDetail(clicked);
+      }
     }
   }
   dragStart = null;
@@ -787,6 +791,18 @@ canvas.addEventListener('wheel', (e) => {
   camera = { ...targetCamera };
   render();
 }, { passive: false });
+
+canvas.addEventListener('dblclick', (e) => {
+  e.preventDefault();
+  if (zoomStack.length > 0) {
+    zoomStack.pop();
+    const target = zoomStack.length > 0 ? zoomStack[zoomStack.length - 1] : packed;
+    zoomToNode(target);
+    updateBreadcrumb();
+  } else {
+    resetView();
+  }
+});
 
 canvas.addEventListener('mouseleave', () => {
   hoveredNode = null;
