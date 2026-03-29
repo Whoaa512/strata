@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { analyze, writeSvFile } from "./analyze";
 import { renderReport } from "./render";
+import { renderBrief, renderFileBrief } from "./brief";
 import path from "path";
 
 const args = process.argv.slice(2);
@@ -9,13 +10,15 @@ const target = args[1] ?? ".";
 
 function usage() {
   console.log(`
-  strata - code complexity analyzer
+  strata - agent-centric code intelligence
 
   Usage:
-    strata analyze <path>   Analyze codebase, write .strata/analysis.sv.json
-    strata report <path>    Analyze and print terminal report
-    strata explore <path>   Analyze and open interactive explorer
-    strata help             Show this message
+    strata brief [path]             Agent risk map for entire codebase
+    strata brief [path] <file>      Detailed briefing for a specific file
+    strata analyze <path>           Analyze codebase, write .strata/analysis.sv.json
+    strata report <path>            Analyze and print terminal report
+    strata explore <path>           Analyze and open interactive explorer
+    strata help                     Show this message
 
   Keyboard shortcuts (explorer):
     1-5    Switch overlays
@@ -37,6 +40,21 @@ if (command === "explore") {
     env: { ...process.env, PORT: process.env.PORT ?? "4747" },
   });
   await proc.exited;
+  process.exit(0);
+}
+
+if (command === "brief") {
+  const briefTarget = args[1] ?? ".";
+  const briefFile = args[2];
+  const rootDir = path.resolve(briefTarget);
+  console.log(`Analyzing ${rootDir}...`);
+  const doc = analyze(rootDir);
+
+  if (briefFile) {
+    console.log(renderFileBrief(doc, briefFile));
+  } else {
+    console.log(renderBrief(doc));
+  }
   process.exit(0);
 }
 
