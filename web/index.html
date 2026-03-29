@@ -22,10 +22,31 @@ canvas:active { cursor: grabbing; }
 .overlay-btn {
   padding: 4px 12px; border-radius: 4px; border: 1px solid #2a2a3a;
   background: transparent; color: #888; font-size: 12px; cursor: pointer;
-  font-family: inherit; transition: all 0.15s;
+  font-family: inherit; transition: all 0.15s; position: relative;
 }
 .overlay-btn:hover { border-color: #555; color: #ccc; }
 .overlay-btn.active { background: #8b5cf6; border-color: #8b5cf6; color: #fff; }
+
+.overlay-btn .btn-tooltip {
+  display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  margin-top: 8px; padding: 10px 14px; background: rgba(15, 15, 25, 0.98);
+  border: 1px solid #2a2a3a; border-radius: 6px; font-size: 11px; color: #ccc;
+  width: 220px; white-space: normal; line-height: 1.5; z-index: 30;
+  pointer-events: none; text-align: left;
+}
+.overlay-btn:hover .btn-tooltip { display: block; }
+.overlay-btn .btn-tooltip strong { color: #8b5cf6; }
+.overlay-btn .btn-tooltip kbd { background: #1a1a2a; padding: 1px 5px; border-radius: 3px; font-size: 10px; color: #aaa; }
+
+#legend {
+  position: fixed; bottom: 48px; left: 16px; font-size: 11px; z-index: 10;
+  background: rgba(15, 15, 25, 0.9); border: 1px solid #2a2a3a;
+  border-radius: 6px; padding: 10px 14px; line-height: 1.8;
+}
+#legend .legend-title { font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; font-size: 10px; margin-bottom: 4px; }
+#legend .legend-row { display: flex; align-items: center; gap: 8px; }
+#legend .legend-circle { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); flex-shrink: 0; }
+#legend .legend-grad { width: 80px; height: 8px; border-radius: 4px; flex-shrink: 0; }
 
 #search {
   margin-left: auto; padding: 6px 12px; border-radius: 4px;
@@ -88,12 +109,22 @@ canvas:active { cursor: grabbing; }
 <div id="toolbar">
   <span class="logo">STRATA</span>
   <div class="sep"></div>
-  <button class="overlay-btn active" data-overlay="complexity">Complexity</button>
-  <button class="overlay-btn" data-overlay="churn">Churn</button>
-  <button class="overlay-btn" data-overlay="hotspot">Hotspots</button>
-  <button class="overlay-btn" data-overlay="blast">Blast Radius</button>
-  <button class="overlay-btn" data-overlay="coupling">Coupling</button>
-  <input id="search" type="text" placeholder="Search functions... (/)">
+  <button class="overlay-btn active" data-overlay="complexity">Complexity
+    <span class="btn-tooltip"><strong>Cognitive Complexity</strong><br>Colors by how hard each function is to understand. <kbd>1</kbd></span>
+  </button>
+  <button class="overlay-btn" data-overlay="churn">Churn
+    <span class="btn-tooltip"><strong>File Churn</strong><br>Colors by how often files change (git commits). Hot = frequently modified. <kbd>2</kbd></span>
+  </button>
+  <button class="overlay-btn" data-overlay="hotspot">Hotspots
+    <span class="btn-tooltip"><strong>Hotspots</strong><br>Combines complexity × churn. High score = complex code that changes often. <kbd>3</kbd></span>
+  </button>
+  <button class="overlay-btn" data-overlay="blast">Blast Radius
+    <span class="btn-tooltip"><strong>Blast Radius</strong><br>Colors by how many callers are transitively affected if this function breaks. <kbd>4</kbd></span>
+  </button>
+  <button class="overlay-btn" data-overlay="coupling">Coupling
+    <span class="btn-tooltip"><strong>Coupling</strong><br>Colors by cross-module dependencies. High = tightly coupled. <kbd>5</kbd></span>
+  </button>
+  <input id="search" type="text" placeholder="Search functions... (/ to focus, Enter to zoom)">
 </div>
 
 <canvas id="canvas"></canvas>
@@ -105,6 +136,17 @@ canvas:active { cursor: grabbing; }
   <div id="detail-content"></div>
 </div>
 
+<div id="legend">
+  <div class="legend-title">Legend</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(30,30,50,0.6);border-color:rgba(80,80,120,0.5)"></div> Directory group</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(40,180,80,0.5)"></div> Function / entity</div>
+  <div class="legend-row" style="margin-top:4px"><span style="color:#666">Circle size</span> = lines of code</div>
+  <div class="legend-row" style="margin-top:4px"><span style="color:#666">Color intensity</span> = overlay metric:</div>
+  <div class="legend-row" style="margin-left:8px">
+    <div class="legend-grad" style="background:linear-gradient(to right,rgba(40,180,160,0.5),rgba(240,40,40,0.8))"></div>
+    <span style="color:#666">low → high</span>
+  </div>
+</div>
 <div id="breadcrumb"></div>
 <div id="stats"></div>
 
@@ -130,11 +172,38 @@ let zoomStack = [];
 let blastHighlight = new Set();
 let dragStart = null;
 let isDragging = false;
+let renderScheduled = false;
+let overlayMaxCache = {};
+let churnMap = new Map();
+let hotspotMap = new Map();
+let blastMap = new Map();
+
+function scheduleRender() {
+  if (renderScheduled) return;
+  renderScheduled = true;
+  requestAnimationFrame(() => { renderScheduled = false; render(); });
+}
+
+function precomputeOverlayData() {
+  churnMap.clear(); hotspotMap.clear(); blastMap.clear();
+  for (const c of data.churn) churnMap.set(c.filePath, c);
+  for (const h of data.hotspots) hotspotMap.set(h.entityId, h);
+  for (const b of data.blastRadius) blastMap.set(b.entityId, b);
+
+  overlayMaxCache = {
+    complexity: Math.max(1, ...data.entities.map(x => x.metrics.cognitive)),
+    churn: Math.max(1, ...data.churn.map(c => c.commits)),
+    hotspot: 1,
+    blast: Math.max(1, ...data.blastRadius.map(b => b.radius)),
+    coupling: Math.max(1, ...data.entities.map(x => x.metrics.cognitive)),
+  };
+}
 
 // --- Data Loading ---
 async function loadData() {
   const resp = await fetch('/api/data');
   data = await resp.json();
+  precomputeOverlayData();
   buildTree();
   resetView();
   render();
@@ -354,41 +423,38 @@ function countEntities(node) {
 }
 
 // --- Color System ---
+const GROUP_FILL = 'rgba(30, 30, 50, 0.4)';
+const GROUP_STROKE = 'rgba(80, 80, 120, 0.3)';
+
 function getColor(circle, overlay) {
   if (circle.type !== 'entity') {
-    return { fill: 'rgba(30, 30, 50, 0.4)', stroke: 'rgba(80, 80, 120, 0.3)' };
+    return { fill: GROUP_FILL, stroke: GROUP_STROKE };
   }
 
   const e = circle.entity;
-  let value = 0, max = 1;
+  let value = 0;
+  const max = overlayMaxCache[overlay] || 1;
 
   switch (overlay) {
     case 'complexity':
+    case 'coupling':
       value = e.metrics.cognitive;
-      max = Math.max(1, ...data.entities.map(x => x.metrics.cognitive));
       break;
     case 'churn': {
-      const churn = data.churn.find(c => c.filePath === e.filePath);
+      const churn = churnMap.get(e.filePath);
       value = churn ? churn.commits : 0;
-      max = Math.max(1, ...data.churn.map(c => c.commits));
       break;
     }
     case 'hotspot': {
-      const hs = data.hotspots.find(h => h.entityId === e.id);
+      const hs = hotspotMap.get(e.id);
       value = hs ? hs.score : 0;
-      max = 1;
       break;
     }
     case 'blast': {
-      const br = data.blastRadius.find(b => b.entityId === e.id);
+      const br = blastMap.get(e.id);
       value = br ? br.radius : 0;
-      max = Math.max(1, ...data.blastRadius.map(b => b.radius));
       break;
     }
-    case 'coupling':
-      value = e.metrics.cognitive;
-      max = Math.max(1, ...data.entities.map(x => x.metrics.cognitive));
-      break;
   }
 
   const ratio = Math.min(1, value / max);
@@ -416,6 +482,8 @@ function render() {
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  computeViewBounds();
+
   ctx.save();
   ctx.translate(window.innerWidth / 2, (window.innerHeight - 48) / 2);
   ctx.scale(camera.zoom, camera.zoom);
@@ -428,19 +496,38 @@ function render() {
   if (animating) requestAnimationFrame(animate);
 }
 
+let viewBounds = { left: 0, right: 0, top: 0, bottom: 0 };
+
+function computeViewBounds() {
+  const hw = window.innerWidth / 2 / camera.zoom;
+  const hh = (window.innerHeight - 48) / 2 / camera.zoom;
+  viewBounds.left = camera.x - hw;
+  viewBounds.right = camera.x + hw;
+  viewBounds.top = camera.y - hh;
+  viewBounds.bottom = camera.y + hh;
+}
+
+function isVisible(node) {
+  return node.x + node.r >= viewBounds.left && node.x - node.r <= viewBounds.right &&
+         node.y + node.r >= viewBounds.top && node.y - node.r <= viewBounds.bottom;
+}
+
 function drawNode(node) {
+  if (!isVisible(node)) return;
+
   const screenR = node.r * camera.zoom;
   if (screenR < 1) return;
 
   const { fill, stroke } = getColor(node, currentOverlay);
 
-  const isHighlighted = blastHighlight.size > 0 && node.type === 'entity' &&
-    blastHighlight.has(node.entity?.id);
+  const isEntity = node.type === 'entity';
+  const entityId = isEntity ? node.entity?.id : null;
+  const hasBlast = blastHighlight.size > 0;
+  const isHighlighted = hasBlast && isEntity && blastHighlight.has(entityId);
   const isSearchMatch = searchTerm && node.name.toLowerCase().includes(searchTerm.toLowerCase());
   const isHovered = node === hoveredNode;
   const isSelected = node === selectedNode;
-  const isDimmed = blastHighlight.size > 0 && node.type === 'entity' &&
-    !blastHighlight.has(node.entity?.id);
+  const isDimmed = hasBlast && isEntity && !blastHighlight.has(entityId);
 
   ctx.beginPath();
   ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
@@ -464,19 +551,17 @@ function drawNode(node) {
   if (isHovered || isSelected) ctx.strokeStyle = '#8b5cf6';
   ctx.stroke();
 
-  // Labels
   if (screenR > 20 && node.name && node.name !== 'root') {
-    const fontSize = Math.min(14, Math.max(8, node.r * 0.3)) / camera.zoom * camera.zoom;
+    const fontSize = Math.min(14, Math.max(8, node.r * 0.3));
     if (fontSize >= 6) {
       ctx.font = `${fontSize / camera.zoom}px 'SF Mono', 'Fira Code', monospace`;
-      ctx.fillStyle = node.type === 'entity' ? '#e0e0e0' : '#888';
+      ctx.fillStyle = isEntity ? '#e0e0e0' : '#888';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
       const maxWidth = node.r * 1.6;
       let label = node.name;
-      const measured = ctx.measureText(label).width;
-      if (measured > maxWidth) {
+      if (ctx.measureText(label).width > maxWidth) {
         while (ctx.measureText(label + '…').width > maxWidth && label.length > 1) {
           label = label.slice(0, -1);
         }
@@ -568,9 +653,9 @@ function showTooltip(node, mx, my) {
   let html = '';
   if (node.type === 'entity') {
     const e = node.entity;
-    const hs = data.hotspots.find(h => h.entityId === e.id);
-    const br = data.blastRadius.find(b => b.entityId === e.id);
-    const churn = data.churn.find(c => c.filePath === e.filePath);
+    const hs = hotspotMap.get(e.id);
+    const br = blastMap.get(e.id);
+    const churn = churnMap.get(e.filePath);
 
     html = `
       <div class="tt-title">${e.name}</div>
@@ -608,8 +693,8 @@ function showTooltip(node, mx, my) {
 function showDetail(node) {
   if (!node || node.type !== 'entity') return;
   const e = node.entity;
-  const br = data.blastRadius.find(b => b.entityId === e.id);
-  const hs = data.hotspots.find(h => h.entityId === e.id);
+  const br = blastMap.get(e.id);
+  const hs = hotspotMap.get(e.id);
   const callees = data.callGraph.filter(edge => edge.caller === e.id);
   const callers = data.callGraph.filter(edge => edge.callee === e.id);
 
@@ -670,7 +755,7 @@ function closeDetail() {
   detailPanel.classList.remove('open');
   selectedNode = null;
   blastHighlight.clear();
-  render();
+  scheduleRender();
 }
 
 // --- Blast Radius Highlighting ---
@@ -684,7 +769,7 @@ window.toggleBlastHighlight = function(entityId) {
       for (const id of br.transitiveCallers) blastHighlight.add(id);
     }
   }
-  render();
+  scheduleRender();
   if (selectedNode) showDetail(selectedNode);
 };
 
@@ -734,16 +819,17 @@ canvas.addEventListener('mousemove', (e) => {
     targetCamera.x = camera.x -= dx;
     targetCamera.y = camera.y -= dy;
     dragStart = { x: e.clientX, y: e.clientY };
-    render();
+    scheduleRender();
     return;
   }
 
   const { x, y } = screenToWorld(e.clientX, e.clientY - 48);
   const hit = hitTest(x, y, packed);
+  const changed = hit !== hoveredNode;
   hoveredNode = hit;
   canvas.style.cursor = hit ? 'pointer' : 'grab';
   showTooltip(hit, e.clientX, e.clientY);
-  render();
+  if (changed) scheduleRender();
 });
 
 canvas.addEventListener('mousedown', (e) => {
@@ -789,7 +875,7 @@ canvas.addEventListener('wheel', (e) => {
   targetCamera.x = wx - (wx - camera.x) * (camera.zoom / newZoom);
   targetCamera.y = wy - (wy - camera.y) * (camera.zoom / newZoom);
   camera = { ...targetCamera };
-  render();
+  scheduleRender();
 }, { passive: false });
 
 canvas.addEventListener('dblclick', (e) => {
@@ -807,7 +893,7 @@ canvas.addEventListener('dblclick', (e) => {
 canvas.addEventListener('mouseleave', () => {
   hoveredNode = null;
   tooltip.style.display = 'none';
-  render();
+  scheduleRender();
 });
 
 // Overlay buttons
@@ -816,14 +902,42 @@ document.querySelectorAll('.overlay-btn[data-overlay]').forEach(btn => {
     document.querySelectorAll('.overlay-btn[data-overlay]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentOverlay = btn.dataset.overlay;
-    render();
+    scheduleRender();
   });
 });
 
 // Search
 searchInput.addEventListener('input', (e) => {
   searchTerm = e.target.value;
-  render();
+  searchMatchIdx = 0;
+  scheduleRender();
+});
+
+function findAllMatches(node, term, results) {
+  if (!term) return results;
+  const lower = term.toLowerCase();
+  if (node.name && node.name.toLowerCase().includes(lower)) results.push(node);
+  if (node.children) for (const c of node.children) findAllMatches(c, term, results);
+  return results;
+}
+
+let searchMatchIdx = 0;
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && searchTerm) {
+    e.preventDefault();
+    const matches = findAllMatches(packed, searchTerm, []);
+    if (matches.length > 0) {
+      const node = matches[searchMatchIdx % matches.length];
+      searchMatchIdx = (searchMatchIdx + 1) % matches.length;
+      zoomToNode(node);
+      if (node.type === 'entity') {
+        selectedNode = node;
+        showDetail(node);
+      }
+      statsEl.textContent = `Match ${searchMatchIdx}/${matches.length} · ${data.entities.length} entities · ${data.callGraph.length} edges`;
+    }
+  }
 });
 
 document.addEventListener('keydown', (e) => {
@@ -835,9 +949,12 @@ document.addEventListener('keydown', (e) => {
     searchInput.blur();
     searchTerm = '';
     searchInput.value = '';
+    searchMatchIdx = 0;
     closeDetail();
-    render();
+    scheduleRender();
+    if (data) statsEl.textContent = `${data.entities.length} entities · ${data.callGraph.length} edges`;
   }
+  if (document.activeElement === searchInput) return;
   if (e.key === '0') resetView();
   if (e.key >= '1' && e.key <= '5') {
     const overlays = ['complexity', 'churn', 'hotspot', 'blast', 'coupling'];
@@ -847,12 +964,12 @@ document.addEventListener('keydown', (e) => {
       document.querySelectorAll('.overlay-btn[data-overlay]').forEach(b => {
         b.classList.toggle('active', b.dataset.overlay === currentOverlay);
       });
-      render();
+      scheduleRender();
     }
   }
 });
 
-window.addEventListener('resize', () => render());
+window.addEventListener('resize', () => scheduleRender());
 
 loadData();
 </script>
