@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { computeChangeRipple } from "../src/ripple";
+import { computeChangeRipple, getPackageBoundary, getPackageBoundaries } from "../src/ripple";
 import { computeAgentRisk } from "../src/risk";
 import type { Entity, CallEdge, TemporalCoupling, BlastRadius, ChurnEntry } from "../src/schema";
+import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { join } from "path";
 
 function makeEntity(id: string, filePath: string, loc = 20): Entity {
   return {
@@ -102,5 +104,73 @@ describe("computeAgentRisk", () => {
     const r = riskMap.get("d.ts:qux:1")!;
     expect(r.safetyRating).toBe("yellow");
     expect(r.riskFactors.some(f => f.includes("implicit"))).toBe(true);
+  });
+});
+
+describe("package boundary detection", () => {
+  const tmpDir = join("/tmp", `strata-pkg-test-${Date.now()}`);
+
+  test("detects package.json boundaries", () => {
+    mkdirSync(join(tmpDir, "packages/a/src"), { recursive: true });
+    mkdirSync(join(tmpDir, "packages/b/src"), { recursive: true });
+    writeFileSync(join(tmpDir, "package.json"), "{}");
+    writeFileSync(join(tmpDir, "packages/a/package.json"), "{}");
+    writeFileSync(join(tmpDir, "packages/b/package.json"), "{}");
+
+    expect(getPackageBoundary("packages/a/src/index.ts", tmpDir)).toBe("packages/a");
+    expect(getPackageBoundary("packages/b/src/util.ts", tmpDir)).toBe("packages/b");
+    expect(getPackageBoundary("src/root.ts", tmpDir)).toBe(".");
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("getPackageBoundaries maps all entities", () => {
+    mkdirSync(join(tmpDir, "packages/x/src"), { recursive: true });
+    mkdirSync(join(tmpDir, "packages/y/src"), { recursive: true });
+    writeFileSync(join(tmpDir, "package.json"), "{}");
+    writeFileSync(join(tmpDir, "packages/x/package.json"), "{}");
+    writeFileSync(join(tmpDir, "packages/y/package.json"), "{}");
+
+    const testEntities = [
+      makeEntity("x:foo:1", "packages/x/src/foo.ts"),
+      makeEntity("y:bar:1", "packages/y/src/bar.ts"),
+    ];
+    const result = getPackageBoundaries(testEntities, tmpDir);
+    expect(result.get("packages/x/src/foo.ts")).toBe("packages/x");
+    expect(result.get("packages/y/src/bar.ts")).toBe("packages/y");
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("cross-package ripple dampening", () => {
+  const tmpDir = join("/tmp", `strata-ripple-pkg-${Date.now()}`);
+
+  test("cross-package deps have lower ripple than intra-package deps", () => {
+    mkdirSync(join(tmpDir, "packages/a/src"), { recursive: true });
+    mkdirSync(join(tmpDir, "packages/b/src"), { recursive: true });
+    writeFileSync(join(tmpDir, "package.json"), "{}");
+    writeFileSync(join(tmpDir, "packages/a/package.json"), "{}");
+    writeFileSync(join(tmpDir, "packages/b/package.json"), "{}");
+
+    const pkgEntities: Entity[] = [
+      makeEntity("a:main:1", "packages/a/src/main.ts", 30),
+      makeEntity("a:helper:1", "packages/a/src/helper.ts", 20),
+      makeEntity("b:util:1", "packages/b/src/util.ts", 20),
+    ];
+    const pkgCallGraph: CallEdge[] = [
+      { caller: "a:main:1", callee: "a:helper:1" },
+      { caller: "a:main:1", callee: "b:util:1" },
+    ];
+
+    const withPkg = computeChangeRipple(pkgEntities, pkgCallGraph, [], [], [], tmpDir);
+    const withoutPkg = computeChangeRipple(pkgEntities, pkgCallGraph, [], [], []);
+
+    const mainWithPkg = withPkg.find(r => r.entityId === "a:main:1")!;
+    const mainWithoutPkg = withoutPkg.find(r => r.entityId === "a:main:1")!;
+
+    expect(mainWithPkg.rippleScore).toBeLessThan(mainWithoutPkg.rippleScore);
+
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 });

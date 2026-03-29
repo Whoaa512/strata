@@ -24,7 +24,7 @@ export function analyze(rootDir: string): StrataDoc {
     callGraph,
   );
 
-  const changeRipple = computeChangeRipple(entities, callGraph, temporalCoupling, blastRadius, churn);
+  const changeRipple = computeChangeRipple(entities, callGraph, temporalCoupling, blastRadius, churn, resolvedRoot);
   const agentRisk = computeAgentRisk(entities, changeRipple, churn);
 
   const doc: StrataDoc = {

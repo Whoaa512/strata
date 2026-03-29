@@ -1,4 +1,41 @@
+import { existsSync } from "fs";
+import { dirname, join, resolve } from "path";
 import type { Entity, CallEdge, TemporalCoupling, BlastRadius, ChurnEntry, ChangeRipple } from "./schema";
+
+export function getPackageBoundary(filePath: string, rootDir: string): string {
+  let dir = dirname(resolve(rootDir, filePath));
+  const root = resolve(rootDir);
+
+  while (dir.length >= root.length) {
+    if (existsSync(join(dir, "package.json")) && dir !== root) {
+      return dir.slice(root.length + 1) || ".";
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return ".";
+}
+
+export function getPackageBoundaries(
+  entities: Entity[],
+  rootDir: string,
+): Map<string, string> {
+  const cache = new Map<string, string>();
+  const result = new Map<string, string>();
+
+  for (const e of entities) {
+    const dir = dirname(e.filePath);
+    if (!cache.has(dir)) {
+      cache.set(dir, getPackageBoundary(e.filePath, rootDir));
+    }
+    result.set(e.filePath, cache.get(dir)!);
+  }
+
+  return result;
+}
+
+const CROSS_PACKAGE_WEIGHT = 0.3;
 
 export function computeChangeRipple(
   entities: Entity[],
@@ -6,9 +43,12 @@ export function computeChangeRipple(
   temporalCoupling: TemporalCoupling[],
   blastRadius: BlastRadius[],
   churn: ChurnEntry[],
+  rootDir?: string,
 ): ChangeRipple[] {
   const entityById = new Map(entities.map(e => [e.id, e]));
   const blastByEntity = new Map(blastRadius.map(b => [b.entityId, b]));
+
+  const pkgByFile = rootDir ? getPackageBoundaries(entities, rootDir) : null;
 
   const calleeIndex = new Map<string, string[]>();
   for (const edge of callGraph) {
@@ -46,9 +86,21 @@ export function computeChangeRipple(
     const blast = blastByEntity.get(entity.id);
     const blastCount = blast?.radius ?? 0;
 
+    const entityPkg = pkgByFile?.get(entity.filePath) ?? ".";
+    let weightedFileCount = 0;
+    let weightedImplicitCount = 0;
+    for (const f of affectedFiles) {
+      const depPkg = pkgByFile?.get(f) ?? ".";
+      weightedFileCount += (depPkg !== entityPkg && pkgByFile) ? CROSS_PACKAGE_WEIGHT : 1;
+    }
+    for (const ic of implicitCouplings) {
+      const depPkg = pkgByFile?.get(ic.filePath) ?? ".";
+      weightedImplicitCount += (depPkg !== entityPkg && pkgByFile) ? CROSS_PACKAGE_WEIGHT : 1;
+    }
+
     const rippleScore = computeRippleScore(
-      affectedFiles.size,
-      implicitCouplings.length,
+      weightedFileCount,
+      weightedImplicitCount,
       blastCount,
     );
 

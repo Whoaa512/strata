@@ -1,4 +1,5 @@
 import type { StrataDoc, ChangeRipple, AgentRisk, Entity, TemporalCoupling } from "./schema";
+import { getPackageBoundaries } from "./ripple";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -40,43 +41,84 @@ export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
   const sortedFiles = Array.from(fileRisk.entries())
     .sort((a, b) => ratingOrder(a[1].worstRating) - ratingOrder(b[1].worstRating));
 
-  lines.push(`${BOLD}${WHITE}  Risk Map${RESET} ${DIM}(${sortedFiles.length} files)${RESET}`);
+  const pkgByFile = doc.rootDir ? getPackageBoundaries(doc.entities, doc.rootDir) : null;
+  const packages = pkgByFile ? new Set(pkgByFile.values()) : new Set(["."]);
+  const isMonorepo = packages.size > 1;
+
+  lines.push(`${BOLD}${WHITE}  Risk Map${RESET} ${DIM}(${sortedFiles.length} files${isMonorepo ? `, ${packages.size} packages` : ""})${RESET}`);
   lines.push("");
 
-  const redFiles = sortedFiles.filter(([, r]) => r.worstRating === "red");
-  const yellowFiles = sortedFiles.filter(([, r]) => r.worstRating === "yellow");
-  const greenFiles = sortedFiles.filter(([, r]) => r.worstRating === "green");
+  if (isMonorepo && pkgByFile) {
+    const pkgFiles = new Map<string, Array<[string, FileRiskInfo]>>();
+    for (const [file, info] of sortedFiles) {
+      const pkg = pkgByFile.get(file) ?? ".";
+      if (!pkgFiles.has(pkg)) pkgFiles.set(pkg, []);
+      pkgFiles.get(pkg)!.push([file, info]);
+    }
 
-  if (redFiles.length > 0) {
-    lines.push(`  ${RED}${BOLD}▸ High attention${RESET} ${DIM}(collaborate with agent here)${RESET}`);
-    for (const [file, info] of redFiles) {
-      lines.push(`    ${ATT_ICON.red} ${WHITE}${file}${RESET}`);
-      lines.push(`      ${DIM}ripple: ${info.maxRipple.toFixed(1)} · context: ~${formatTokens(info.contextCost)} · ${info.entityCount} entities${RESET}`);
-      for (const factor of info.topFactors.slice(0, 2)) {
-        lines.push(`      ${YELLOW}⚠ ${factor}${RESET}`);
+    const sortedPkgs = Array.from(pkgFiles.entries()).sort((a, b) => {
+      const aWorst = Math.min(...a[1].map(([, i]) => ratingOrder(i.worstRating)));
+      const bWorst = Math.min(...b[1].map(([, i]) => ratingOrder(i.worstRating)));
+      return aWorst - bWorst;
+    });
+
+    for (const [pkg, files] of sortedPkgs) {
+      const red = files.filter(([, r]) => r.worstRating === "red").length;
+      const yellow = files.filter(([, r]) => r.worstRating === "yellow").length;
+      const green = files.filter(([, r]) => r.worstRating === "green").length;
+      const worstIcon = red > 0 ? ATT_ICON.red : yellow > 0 ? ATT_ICON.yellow : ATT_ICON.green;
+
+      lines.push(`  ${worstIcon} ${BOLD}${CYAN}${pkg}${RESET} ${DIM}(${RED}${red}${RESET}${DIM}/${YELLOW}${yellow}${RESET}${DIM}/${GREEN}${green}${RESET}${DIM})${RESET}`);
+
+      for (const [file, info] of files) {
+        if (info.worstRating === "green") continue;
+        const icon = ATT_ICON[info.worstRating];
+        lines.push(`    ${icon} ${file}`);
+        if (info.worstRating === "red") {
+          lines.push(`      ${DIM}ripple: ${info.maxRipple.toFixed(1)} · context: ~${formatTokens(info.contextCost)}${RESET}`);
+          for (const factor of info.topFactors.slice(0, 1)) {
+            lines.push(`      ${YELLOW}⚠ ${factor}${RESET}`);
+          }
+        }
       }
+      lines.push("");
     }
-    lines.push("");
-  }
+  } else {
+    const redFiles = sortedFiles.filter(([, r]) => r.worstRating === "red");
+    const yellowFiles = sortedFiles.filter(([, r]) => r.worstRating === "yellow");
+    const greenFiles = sortedFiles.filter(([, r]) => r.worstRating === "green");
 
-  if (yellowFiles.length > 0) {
-    lines.push(`  ${YELLOW}${BOLD}▸ Medium attention${RESET} ${DIM}(review agent output)${RESET}`);
-    for (const [file, info] of yellowFiles) {
-      lines.push(`    ${ATT_ICON.yellow} ${file}`);
-      lines.push(`      ${DIM}ripple: ${info.maxRipple.toFixed(1)} · context: ~${formatTokens(info.contextCost)} · ${info.entityCount} entities${RESET}`);
-      for (const factor of info.topFactors.slice(0, 1)) {
-        lines.push(`      ${DIM}⚠ ${factor}${RESET}`);
+    if (redFiles.length > 0) {
+      lines.push(`  ${RED}${BOLD}▸ High attention${RESET} ${DIM}(collaborate with agent here)${RESET}`);
+      for (const [file, info] of redFiles) {
+        lines.push(`    ${ATT_ICON.red} ${WHITE}${file}${RESET}`);
+        lines.push(`      ${DIM}ripple: ${info.maxRipple.toFixed(1)} · context: ~${formatTokens(info.contextCost)} · ${info.entityCount} entities${RESET}`);
+        for (const factor of info.topFactors.slice(0, 2)) {
+          lines.push(`      ${YELLOW}⚠ ${factor}${RESET}`);
+        }
       }
+      lines.push("");
     }
-    lines.push("");
-  }
 
-  if (greenFiles.length > 0) {
-    lines.push(`  ${GREEN}${BOLD}▸ Low attention${RESET} ${DIM}(agents handle autonomously)${RESET}`);
-    for (const [file] of greenFiles) {
-      lines.push(`    ${ATT_ICON.green} ${DIM}${file}${RESET}`);
+    if (yellowFiles.length > 0) {
+      lines.push(`  ${YELLOW}${BOLD}▸ Medium attention${RESET} ${DIM}(review agent output)${RESET}`);
+      for (const [file, info] of yellowFiles) {
+        lines.push(`    ${ATT_ICON.yellow} ${file}`);
+        lines.push(`      ${DIM}ripple: ${info.maxRipple.toFixed(1)} · context: ~${formatTokens(info.contextCost)} · ${info.entityCount} entities${RESET}`);
+        for (const factor of info.topFactors.slice(0, 1)) {
+          lines.push(`      ${DIM}⚠ ${factor}${RESET}`);
+        }
+      }
+      lines.push("");
     }
-    lines.push("");
+
+    if (greenFiles.length > 0) {
+      lines.push(`  ${GREEN}${BOLD}▸ Low attention${RESET} ${DIM}(agents handle autonomously)${RESET}`);
+      for (const [file] of greenFiles) {
+        lines.push(`    ${ATT_ICON.green} ${DIM}${file}${RESET}`);
+      }
+      lines.push("");
+    }
   }
 
   const implicitCouplings = getImplicitCouplings(doc);
@@ -110,9 +152,13 @@ export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
   const totalContextCost = doc.agentRisk.reduce((sum, r) => sum + r.contextCost, 0);
   const avgContextCost = doc.agentRisk.length > 0 ? totalContextCost / doc.agentRisk.length : 0;
 
+  const redCount = sortedFiles.filter(([, r]) => r.worstRating === "red").length;
+  const yellowCount = sortedFiles.filter(([, r]) => r.worstRating === "yellow").length;
+  const greenCount = sortedFiles.filter(([, r]) => r.worstRating === "green").length;
+
   lines.push(`${DIM}  ─────────────────────────────────────────${RESET}`);
   lines.push(`  ${DIM}Entities: ${doc.entities.length} · Avg context cost: ~${formatTokens(avgContextCost)} · ` +
-    `${RED}${redFiles.length}${RESET}${DIM} danger · ${YELLOW}${yellowFiles.length}${RESET}${DIM} caution · ${GREEN}${greenFiles.length}${RESET}${DIM} safe${RESET}`);
+    `${RED}${redCount}${RESET}${DIM} danger · ${YELLOW}${yellowCount}${RESET}${DIM} caution · ${GREEN}${greenCount}${RESET}${DIM} safe${RESET}`);
   lines.push("");
 
   return lines.join("\n");
