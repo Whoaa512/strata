@@ -1,4 +1,4 @@
-import type { Entity, ChangeRipple, AgentRisk, ChurnEntry } from "./schema";
+import type { Entity, ChangeRipple, AgentRisk } from "./schema";
 
 const TOKENS_PER_LINE = 3.5;
 

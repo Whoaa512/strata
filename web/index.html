@@ -109,8 +109,8 @@ canvas:active { cursor: grabbing; }
 <div id="toolbar">
   <span class="logo">STRATA</span>
   <div class="sep"></div>
-  <button class="overlay-btn active" data-overlay="safety">Safety
-    <span class="btn-tooltip"><strong>Agent Safety Rating</strong><br>Green = safe to send agents. Yellow = review carefully. Red = needs briefing. <kbd>1</kbd></span>
+  <button class="overlay-btn active" data-overlay="attention">Attention
+    <span class="btn-tooltip"><strong>Attention Needed</strong><br>Low = agents handle autonomously. Medium = review output. High = collaborate with agent. <kbd>1</kbd></span>
   </button>
   <button class="overlay-btn" data-overlay="ripple">Ripple
     <span class="btn-tooltip"><strong>Change Ripple</strong><br>How far changes cascade. High = touching this affects many files. <kbd>2</kbd></span>
@@ -137,12 +137,11 @@ canvas:active { cursor: grabbing; }
 </div>
 
 <div id="legend">
-  <div class="legend-title">Agent Risk</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(40,180,80,0.5)"></div> Safe — send any agent</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,180,40,0.5)"></div> Caution — review output</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,50,50,0.5)"></div> Danger — needs briefing</div>
-  <div class="legend-row" style="margin-top:4px"><span style="color:#666">Circle size</span> = lines of code</div>
-  <div class="legend-row" style="margin-top:4px"><span style="color:#666">Color</span> = selected overlay metric</div>
+  <div class="legend-title">Attention</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(40,180,80,0.5)"></div> Low — agents handle it</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,180,40,0.5)"></div> Medium — review output</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,50,50,0.5)"></div> High — collaborate w/ agent</div>
+  <div class="legend-row" style="margin-top:4px"><span style="color:#666">Size</span> = lines of code</div>
 </div>
 <div id="breadcrumb"></div>
 <div id="stats"></div>
@@ -163,7 +162,7 @@ let targetCamera = { x: 0, y: 0, zoom: 1 };
 let animating = false;
 let hoveredNode = null;
 let selectedNode = null;
-let currentOverlay = 'safety';
+let currentOverlay = 'attention';
 let searchTerm = '';
 let zoomStack = [];
 let blastHighlight = new Set();
@@ -192,7 +191,7 @@ function precomputeOverlayData() {
   if (data.changeRipple) for (const r of data.changeRipple) rippleMap.set(r.entityId, r);
 
   overlayMaxCache = {
-    safety: 1,
+    attention: 1,
     ripple: Math.max(1, ...(data.changeRipple || []).map(r => r.rippleScore)),
     context: Math.max(1, ...(data.agentRisk || []).map(r => r.contextCost)),
     implicit: Math.max(1, ...(data.changeRipple || []).map(r => r.implicitCouplings.length)),
@@ -442,7 +441,7 @@ function getColor(circle, overlay) {
   const risk = riskMap.get(e.id);
   const ripple = rippleMap.get(e.id);
 
-  if (overlay === 'safety') {
+  if (overlay === 'attention') {
     const rating = risk ? risk.safetyRating : 'green';
     return SAFETY_COLORS[rating];
   }
@@ -526,11 +525,21 @@ function drawNode(node) {
   if (!isVisible(node)) return;
 
   const screenR = node.r * camera.zoom;
-  if (screenR < 1) return;
+
+  // LOD: skip tiny nodes entirely
+  if (screenR < 2) return;
+
+  const isEntity = node.type === 'entity';
+  const isGroup = !isEntity;
+
+  // LOD: at low zoom, skip individual entities — show only groups
+  if (isEntity && screenR < 4) return;
+
+  // LOD: skip group outlines when they're huge (parent containers)
+  const skipGroupRing = isGroup && screenR > 600;
 
   const { fill, stroke } = getColor(node, currentOverlay);
 
-  const isEntity = node.type === 'entity';
   const entityId = isEntity ? node.entity?.id : null;
   const hasBlast = blastHighlight.size > 0;
   const isHighlighted = hasBlast && isEntity && blastHighlight.has(entityId);
@@ -539,35 +548,50 @@ function drawNode(node) {
   const isSelected = node === selectedNode;
   const isDimmed = hasBlast && isEntity && !blastHighlight.has(entityId);
 
-  ctx.beginPath();
-  ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+  // For entities with low attention, reduce visual prominence
+  const risk = isEntity ? riskMap.get(entityId) : null;
+  const isLowAttention = risk && risk.safetyRating === 'green' && currentOverlay === 'attention';
 
-  if (isDimmed) {
-    ctx.fillStyle = 'rgba(20, 20, 30, 0.3)';
-    ctx.strokeStyle = 'rgba(40, 40, 60, 0.2)';
-  } else if (isHighlighted) {
-    ctx.fillStyle = 'rgba(139, 92, 246, 0.4)';
-    ctx.strokeStyle = 'rgba(139, 92, 246, 0.9)';
-  } else if (isSearchMatch) {
-    ctx.fillStyle = 'rgba(255, 200, 50, 0.3)';
-    ctx.strokeStyle = 'rgba(255, 200, 50, 0.8)';
-  } else {
-    ctx.fillStyle = fill;
-    ctx.strokeStyle = stroke;
+  if (!skipGroupRing) {
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+
+    if (isDimmed) {
+      ctx.fillStyle = 'rgba(20, 20, 30, 0.3)';
+      ctx.strokeStyle = 'rgba(40, 40, 60, 0.2)';
+    } else if (isHighlighted) {
+      ctx.fillStyle = 'rgba(139, 92, 246, 0.4)';
+      ctx.strokeStyle = 'rgba(139, 92, 246, 0.9)';
+    } else if (isSearchMatch) {
+      ctx.fillStyle = 'rgba(255, 200, 50, 0.3)';
+      ctx.strokeStyle = 'rgba(255, 200, 50, 0.8)';
+    } else if (isLowAttention) {
+      ctx.fillStyle = 'rgba(30, 40, 35, 0.2)';
+      ctx.strokeStyle = 'rgba(40, 60, 45, 0.15)';
+    } else {
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = stroke;
+    }
+
+    ctx.fill();
+
+    // Thinner strokes for groups, no stroke for tiny circles
+    if (screenR > 3) {
+      ctx.lineWidth = (isHovered || isSelected) ? 2 / camera.zoom : (isGroup ? 0.5 : 1) / camera.zoom;
+      if (isHovered || isSelected) ctx.strokeStyle = '#8b5cf6';
+      ctx.stroke();
+    }
   }
 
-  ctx.fill();
-  ctx.lineWidth = (isHovered || isSelected) ? 2 / camera.zoom : 1 / camera.zoom;
-  if (isHovered || isSelected) ctx.strokeStyle = '#8b5cf6';
-  ctx.stroke();
-
-  if (screenR > 20 && node.name && node.name !== 'root') {
+  // Labels: only show when circle is big enough to read
+  const labelThreshold = isGroup ? 30 : 20;
+  if (screenR > labelThreshold && node.name && node.name !== 'root') {
     const fontSize = Math.min(14, Math.max(8, node.r * 0.3));
     if (fontSize >= 6) {
-      ctx.font = `${fontSize / camera.zoom}px 'SF Mono', 'Fira Code', monospace`;
-      ctx.fillStyle = isEntity ? '#e0e0e0' : '#888';
+      ctx.font = `${isGroup ? '' : ''}${fontSize / camera.zoom}px 'SF Mono', 'Fira Code', monospace`;
+      ctx.fillStyle = isLowAttention ? 'rgba(130,130,130,0.4)' : (isEntity ? '#e0e0e0' : '#888');
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.textBaseline = isGroup ? 'top' : 'middle';
 
       const maxWidth = node.r * 1.6;
       let label = node.name;
@@ -577,7 +601,10 @@ function drawNode(node) {
         }
         label += '…';
       }
-      ctx.fillText(label, node.x, node.y);
+
+      // Groups: label at top of circle instead of center
+      const labelY = isGroup ? node.y - node.r + fontSize / camera.zoom * 1.5 : node.y;
+      ctx.fillText(label, node.x, labelY);
     }
   }
 
@@ -667,14 +694,14 @@ function showTooltip(node, mx, my) {
     const ripple = rippleMap.get(e.id);
     const br = blastMap.get(e.id);
 
-    const safetyColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
-    const safetyLabel = { green: 'SAFE', yellow: 'CAUTION', red: 'DANGER' };
+    const attColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
+    const attLabel = { green: 'LOW', yellow: 'MEDIUM', red: 'HIGH' };
     const rating = risk ? risk.safetyRating : 'green';
 
     html = `
       <div class="tt-title">${e.name}</div>
       <div class="tt-path">${e.filePath}:${e.startLine}</div>
-      <div class="tt-row"><span class="tt-label">Safety</span><span class="tt-value" style="color:${safetyColor[rating]}">${safetyLabel[rating]}</span></div>
+      <div class="tt-row"><span class="tt-label">Attention</span><span class="tt-value" style="color:${attColor[rating]}">${attLabel[rating]}</span></div>
       ${risk ? `<div class="tt-row"><span class="tt-label">Context cost</span><span class="tt-value">~${risk.contextCost >= 1000 ? (risk.contextCost / 1000).toFixed(1) + 'k' : risk.contextCost} tokens</span></div>` : ''}
       ${ripple ? `<div class="tt-row"><span class="tt-label">Change ripple</span><span class="tt-value">${ripple.affectedFiles.length} files</span></div>` : ''}
       ${ripple && ripple.implicitCouplings.length > 0 ? `<div class="tt-row"><span class="tt-label">Implicit couplings</span><span class="tt-value" style="color:#facc15">${ripple.implicitCouplings.length}</span></div>` : ''}
@@ -712,14 +739,14 @@ function showDetail(node) {
 
   const risk = riskMap.get(e.id);
   const ripple = rippleMap.get(e.id);
-  const safetyColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
-  const safetyLabel = { green: '● SAFE', yellow: '● CAUTION', red: '● DANGER' };
+  const attColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
+  const attLabel = { green: '● LOW ATTENTION', yellow: '● MEDIUM ATTENTION', red: '● HIGH ATTENTION' };
   const rating = risk ? risk.safetyRating : 'green';
 
   let html = `
     <div class="dp-title">${e.name}</div>
     <div class="dp-path">${e.filePath}:${e.startLine}-${e.endLine} · ${e.kind}</div>
-    <div style="font-size:14px;font-weight:700;color:${safetyColor[rating]};margin:8px 0">${safetyLabel[rating]}</div>
+    <div style="font-size:14px;font-weight:700;color:${attColor[rating]};margin:8px 0">${attLabel[rating]}</div>
 
     <div class="dp-section">
       <h3>Agent Risk</h3>
@@ -983,7 +1010,42 @@ searchInput.addEventListener('keydown', (e) => {
   }
 });
 
+// WASD / Arrow key panning
+const panKeys = new Set();
+let panAnimating = false;
+
+function panLoop() {
+  if (panKeys.size === 0) { panAnimating = false; return; }
+  const speed = 200 / camera.zoom;
+  if (panKeys.has('w') || panKeys.has('ArrowUp'))    { camera.y -= speed * 0.016; targetCamera.y = camera.y; }
+  if (panKeys.has('s') || panKeys.has('ArrowDown'))  { camera.y += speed * 0.016; targetCamera.y = camera.y; }
+  if (panKeys.has('a') || panKeys.has('ArrowLeft'))   { camera.x -= speed * 0.016; targetCamera.x = camera.x; }
+  if (panKeys.has('d') || panKeys.has('ArrowRight'))  { camera.x += speed * 0.016; targetCamera.x = camera.x; }
+  scheduleRender();
+  requestAnimationFrame(panLoop);
+}
+
 document.addEventListener('keydown', (e) => {
+  if (document.activeElement === searchInput) {
+    if (e.key === 'Escape') {
+      searchInput.blur();
+      searchTerm = '';
+      searchInput.value = '';
+      searchMatchIdx = 0;
+      closeDetail();
+      scheduleRender();
+      if (data) statsEl.textContent = `${data.entities.length} entities · ${data.callGraph.length} edges`;
+    }
+    return;
+  }
+
+  if (['w','a','s','d','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+    e.preventDefault();
+    panKeys.add(e.key);
+    if (!panAnimating) { panAnimating = true; panLoop(); }
+    return;
+  }
+
   if (e.key === '/' && document.activeElement !== searchInput) {
     e.preventDefault();
     searchInput.focus();
@@ -1000,7 +1062,7 @@ document.addEventListener('keydown', (e) => {
   if (document.activeElement === searchInput) return;
   if (e.key === '0') resetView();
   if (e.key >= '1' && e.key <= '5') {
-    const overlays = ['safety', 'ripple', 'context', 'implicit', 'blast'];
+    const overlays = ['attention', 'ripple', 'context', 'implicit', 'blast'];
     const idx = parseInt(e.key) - 1;
     if (idx < overlays.length) {
       currentOverlay = overlays[idx];
@@ -1010,6 +1072,10 @@ document.addEventListener('keydown', (e) => {
       scheduleRender();
     }
   }
+});
+
+document.addEventListener('keyup', (e) => {
+  panKeys.delete(e.key);
 });
 
 window.addEventListener('resize', () => scheduleRender());

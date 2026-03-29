@@ -10,16 +10,16 @@ const CYAN = "\x1b[36m";
 const MAGENTA = "\x1b[35m";
 const WHITE = "\x1b[37m";
 
-const SAFETY_ICON: Record<string, string> = {
+const ATT_ICON: Record<string, string> = {
   green: `${GREEN}●${RESET}`,
   yellow: `${YELLOW}●${RESET}`,
   red: `${RED}●${RESET}`,
 };
 
-const SAFETY_LABEL: Record<string, string> = {
-  green: `${GREEN}SAFE${RESET}`,
-  yellow: `${YELLOW}CAUTION${RESET}`,
-  red: `${RED}DANGER${RESET}`,
+const ATT_LABEL: Record<string, string> = {
+  green: `${GREEN}LOW${RESET}`,
+  yellow: `${YELLOW}MEDIUM${RESET}`,
+  red: `${RED}HIGH${RESET}`,
 };
 
 export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
@@ -48,9 +48,9 @@ export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
   const greenFiles = sortedFiles.filter(([, r]) => r.worstRating === "green");
 
   if (redFiles.length > 0) {
-    lines.push(`  ${RED}${BOLD}▸ Danger zones${RESET} ${DIM}(need careful briefing)${RESET}`);
+    lines.push(`  ${RED}${BOLD}▸ High attention${RESET} ${DIM}(collaborate with agent here)${RESET}`);
     for (const [file, info] of redFiles) {
-      lines.push(`    ${SAFETY_ICON.red} ${WHITE}${file}${RESET}`);
+      lines.push(`    ${ATT_ICON.red} ${WHITE}${file}${RESET}`);
       lines.push(`      ${DIM}ripple: ${info.maxRipple.toFixed(1)} · context: ~${formatTokens(info.contextCost)} · ${info.entityCount} entities${RESET}`);
       for (const factor of info.topFactors.slice(0, 2)) {
         lines.push(`      ${YELLOW}⚠ ${factor}${RESET}`);
@@ -60,9 +60,9 @@ export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
   }
 
   if (yellowFiles.length > 0) {
-    lines.push(`  ${YELLOW}${BOLD}▸ Caution${RESET} ${DIM}(review agent output carefully)${RESET}`);
+    lines.push(`  ${YELLOW}${BOLD}▸ Medium attention${RESET} ${DIM}(review agent output)${RESET}`);
     for (const [file, info] of yellowFiles) {
-      lines.push(`    ${SAFETY_ICON.yellow} ${file}`);
+      lines.push(`    ${ATT_ICON.yellow} ${file}`);
       lines.push(`      ${DIM}ripple: ${info.maxRipple.toFixed(1)} · context: ~${formatTokens(info.contextCost)} · ${info.entityCount} entities${RESET}`);
       for (const factor of info.topFactors.slice(0, 1)) {
         lines.push(`      ${DIM}⚠ ${factor}${RESET}`);
@@ -72,9 +72,9 @@ export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
   }
 
   if (greenFiles.length > 0) {
-    lines.push(`  ${GREEN}${BOLD}▸ Safe to send agents${RESET}`);
+    lines.push(`  ${GREEN}${BOLD}▸ Low attention${RESET} ${DIM}(agents handle autonomously)${RESET}`);
     for (const [file] of greenFiles) {
-      lines.push(`    ${SAFETY_ICON.green} ${DIM}${file}${RESET}`);
+      lines.push(`    ${ATT_ICON.green} ${DIM}${file}${RESET}`);
     }
     lines.push("");
   }
@@ -100,7 +100,7 @@ export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
       const entity = entityById.get(r.entityId);
       if (!entity) continue;
       const risk = riskByEntity.get(r.entityId);
-      const icon = risk ? SAFETY_ICON[risk.safetyRating] : "·";
+      const icon = risk ? ATT_ICON[risk.safetyRating] : "·";
       lines.push(`    ${icon} ${CYAN}${entity.name}${RESET} ${DIM}${entity.filePath}:${entity.startLine}${RESET}`);
       lines.push(`      ${DIM}→ ${r.affectedFiles.length} files: ${r.affectedFiles.slice(0, 4).join(", ")}${r.affectedFiles.length > 4 ? ` +${r.affectedFiles.length - 4} more` : ""}${RESET}`);
     }
@@ -136,8 +136,8 @@ export function renderFileBrief(doc: StrataDoc, targetFile: string): string {
   for (const entity of entities) {
     const risk = riskByEntity.get(entity.id);
     const ripple = rippleByEntity.get(entity.id);
-    const icon = risk ? SAFETY_ICON[risk.safetyRating] : "·";
-    const label = risk ? SAFETY_LABEL[risk.safetyRating] : "";
+    const icon = risk ? ATT_ICON[risk.safetyRating] : "·";
+    const label = risk ? ATT_LABEL[risk.safetyRating] : "";
 
     lines.push(`  ${icon} ${BOLD}${CYAN}${entity.name}${RESET} ${DIM}L${entity.startLine}-${entity.endLine} · ${entity.kind}${RESET} ${label}`);
 
