@@ -190,20 +190,27 @@ Convention {
 
 ## Phasing
 
-### Phase 0.5 (now → validate the concept)
-- Compute change ripple from existing call graph + temporal coupling
-- Add safety rating (composite score)
-- Rework web explorer overlays to agent-centric metrics
-- Build `strata brief` CLI command (even if naive at first)
+### Phase 0.5 ✅ DONE
+- ✅ Change ripple from call graph + temporal coupling
+- ✅ Attention rating (composite score: green/yellow/red)
+- ✅ Web explorer with agent-centric overlays (attention, ripple, context cost, implicit coupling, blast radius)
+- ✅ `strata brief` CLI (codebase risk map + per-file drill-down)
+- ✅ `strata diff` CLI (post-agent review: missed files, missed tests, affected callers, confidence scores)
+- ✅ WASD panning, LOD noise reduction in explorer
+- ✅ Validated on pi-mono (real monorepo, real commits)
 
-### Phase 1 (structural siblings + conventions)
+### Phase 0.7 (now → monorepo quality)
+- Hub function dampening (functions called by >N callers get lower confidence in diff)
+- Package-scoped analysis (ripple scoped within packages first, cross-package as secondary signal)
+- `--format json` for machine consumption of briefs/diffs
+
+### Phase 1 (structural siblings + accuracy)
+- Interface vs implementation diffing (AST diff to distinguish signature changes from body changes)
 - Sibling detection via naming + directory + temporal co-change
 - Convention extraction (pattern clustering)
-- Context cost estimation
 - Richer briefing output
 
-### Phase 2 (auto-inject + live)
+### Phase 2 (flow view + integration)
+- Flow view spike (Unreal Blueprints-style node-wire diagram)
 - MCP tool so agents can query Strata themselves
 - Watch mode — re-analyze on file change
-- Dashboard view
-- Integration with CLAUDE.md / AGENTS.md generation

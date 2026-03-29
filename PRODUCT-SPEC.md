@@ -342,7 +342,9 @@ $ strata brief . --diff HEAD~1
 - [ ] Flags missing test updates for changed functions
 - [ ] Zero false positives on the "MISSED" list (high precision > high recall)
 
-**This is probably the highest-value journey.** It's concrete, testable, and directly prevents agent mistakes. But it requires `--diff` mode, which doesn't exist yet.
+**This is probably the highest-value journey.** It's concrete, testable, and directly prevents agent mistakes.
+
+> **STATUS: IMPLEMENTED** — `strata diff` shipped and validated on pi-mono. Confidence scoring works well; temporal coupling is strongest signal. Tuned for monorepo scale (capped output, hub function dampening needed).
 
 ### Journey 4: "Where is complexity growing?"
 
@@ -358,12 +360,19 @@ $ strata brief . --diff HEAD~1
 
 ### Tier 1: Must ship (blocks core value)
 
+| # | What | Status | Effort |
+|---|------|--------|--------|
+| P1 | **Validate current viz on real repos** (D1) | ⚠️ Partial — brief on pi-mono shows everything red (monorepo ripple explosion). Needs package scoping. | 1 day |
+| P2 | **Validate brief improves agent outcomes** (D2) | 🔲 Not started | 2-3 days |
+| P3 | **`strata diff`** (Journey 3) | ✅ **Done** — shipped + validated on pi-mono. Confidence scoring, output caps, tuned thresholds. | — |
+| P4 | **`strata brief --format json`** | 🔲 Not started | 1 day |
+
+### Tier 1.5: Immediate next (unblocks monorepo use)
+
 | # | What | Why | Effort |
 |---|------|-----|--------|
-| P1 | **Validate current viz on real repos** (D1) | If it's useless at scale, all viz work is wasted | 1 day |
-| P2 | **Validate brief improves agent outcomes** (D2) | If briefs don't help, the CLI surface is theater | 2-3 days |
-| P3 | **`strata brief --diff`** (Journey 3) | Highest-value, most concrete user journey. Catches what agents miss. | 3-5 days |
-| P4 | **`strata brief --format json`** | Unblocks machine consumption of briefs | 1 day |
+| P3a | **Hub function dampening** | Functions called by >N callers (create, prompt) generate noise. Dampen their call-graph confidence. Single biggest noise reduction. | 30min |
+| P3b | **Package-scoped analysis** | Ripple crosses package boundaries in monorepos → everything is red. Scope ripple within packages first, cross-package as secondary signal. Makes brief usable on real monorepos. | 2-3hrs |
 
 ### Tier 2: Should ship (meaningful improvement)
 
@@ -371,6 +380,7 @@ $ strata brief . --diff HEAD~1
 |---|------|-----|--------|
 | P5 | **Flow view spike** (D3) | The node-wire view is the product vision. Need to prove feasibility. | 1 week spike |
 | P6 | **Structural sibling detection** | Novel detection that no other tool does. Differentiator. | 1-2 weeks |
+| P6a | **Interface vs implementation diffing** | Can't distinguish signature changes from body changes. Would eliminate most false positives in diff. | 1-2 days |
 | P7 | **Terrain map improvements** | Size=context cost, better grouping, transitions to flow view | 1 week |
 | P8 | **MCP tool for agent self-serve** | Agents query Strata directly instead of human injecting context | 1 week |
 
