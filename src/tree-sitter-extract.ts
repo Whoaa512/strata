@@ -30,77 +30,62 @@ function entityId(filePath: string, name: string, line: number): string {
   return `${filePath}:${name}:${line}`;
 }
 
-function computeCyclomatic(body: SyntaxNode, config: LangConfig): number {
-  let cc = 1;
-  const walk = (node: SyntaxNode) => {
-    if (config.cyclomaticBranches.includes(node.type)) {
-      cc++;
-    } else if (config.cyclomaticBoolOps.length > 0) {
-      if (node.type === "boolean_operator") {
-        cc++;
-      } else if (node.type === "binary_expression") {
-        const op = node.childForFieldName("operator")?.text
-          ?? node.children.find((c: SyntaxNode) => config.cyclomaticBoolOps.includes(c.type ?? ""))?.type;
-        if (op && config.cyclomaticBoolOps.includes(op)) cc++;
-      }
-    }
-    for (const child of node.children) {
-      walk(child);
-    }
-  };
-  walk(body);
-  return cc;
+interface BodyAnalysis {
+  cyclomatic: number;
+  cognitive: number;
+  maxDepth: number;
+  calls: string[];
 }
 
-function computeCognitive(body: SyntaxNode, config: LangConfig): { cognitive: number; maxDepth: number } {
+function analyzeBody(body: SyntaxNode, config: LangConfig): BodyAnalysis {
+  let cyclomatic = 1;
   let cognitive = 0;
   let maxDepth = 0;
+  const calls: string[] = [];
+  const hasBoolOps = config.cyclomaticBoolOps.length > 0;
 
   const walk = (node: SyntaxNode, nesting: number) => {
-    if (config.nestingTypes.includes(node.type)) {
+    const type = node.type;
+
+    if (config.nestingTypes.includes(type)) {
       cognitive += 1 + nesting;
       const newNesting = nesting + 1;
       if (newNesting > maxDepth) maxDepth = newNesting;
-      for (const child of node.children) {
-        walk(child, newNesting);
-      }
+      if (config.cyclomaticBranches.includes(type)) cyclomatic++;
+      for (const child of node.children) walk(child, newNesting);
       return;
     }
 
-    if (node.type === "elif_clause" || node.type === "except_clause" || node.type === "else_clause") {
+    if (config.cyclomaticBranches.includes(type)) {
+      cyclomatic++;
+    }
+
+    if (type === "elif_clause" || type === "except_clause" || type === "else_clause") {
       cognitive += 1;
     }
 
-    if (node.type === "boolean_operator") {
+    if (type === "boolean_operator") {
+      cyclomatic++;
       cognitive += 1;
-    } else if (node.type === "binary_expression") {
+    } else if (hasBoolOps && type === "binary_expression") {
       const op = node.childForFieldName("operator")?.text
         ?? node.children.find((c: SyntaxNode) => config.cyclomaticBoolOps.includes(c.type ?? ""))?.type;
-      if (op && config.cyclomaticBoolOps.includes(op)) cognitive += 1;
+      if (op && config.cyclomaticBoolOps.includes(op)) {
+        cyclomatic++;
+        cognitive += 1;
+      }
     }
 
-    for (const child of node.children) {
-      walk(child, nesting);
-    }
-  };
-
-  walk(body, 0);
-  return { cognitive, maxDepth };
-}
-
-function collectCalls(body: SyntaxNode, config: LangConfig): string[] {
-  const calls: string[] = [];
-  const walk = (node: SyntaxNode) => {
-    if (node.type === config.callType) {
+    if (type === config.callType) {
       const name = config.getCallName(node);
       if (name) calls.push(name);
     }
-    for (const child of node.children) {
-      walk(child);
-    }
+
+    for (const child of node.children) walk(child, nesting);
   };
-  walk(body);
-  return calls;
+
+  walk(body, 0);
+  return { cyclomatic, cognitive, maxDepth, calls };
 }
 
 interface ExtractedEntity {
@@ -131,8 +116,9 @@ function extractFromTree(
       const body = node.childForFieldName("body");
       const params = config.getParamCount(node);
 
-      const cc = body ? computeCyclomatic(body, config) : 1;
-      const cog = body ? computeCognitive(body, config) : { cognitive: 0, maxDepth: 0 };
+      const analysis = body
+        ? analyzeBody(body, config)
+        : { cyclomatic: 1, cognitive: 0, maxDepth: 0, calls: [] };
 
       const id = entityId(filePath, name, startLine);
       entities.push({
@@ -144,14 +130,14 @@ function extractFromTree(
           startLine,
           endLine,
           metrics: {
-            cyclomatic: cc,
-            cognitive: cog.cognitive,
+            cyclomatic: analysis.cyclomatic,
+            cognitive: analysis.cognitive,
             loc: endLine - startLine + 1,
-            maxNestingDepth: cog.maxDepth,
+            maxNestingDepth: analysis.maxDepth,
             parameterCount: params,
           },
         },
-        calls: body ? collectCalls(body, config) : [],
+        calls: analysis.calls,
       });
     }
 
