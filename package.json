@@ -11,10 +11,20 @@
     "strata": "bun src/cli.ts"
   },
   "dependencies": {
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-python": "^0.25.0",
     "typescript": "^5.8.2",
+    "web-tree-sitter": "^0.26.7",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/bun": "^1.2.6"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "tree-sitter",
+      "tree-sitter-python",
+      "tree-sitter-go"
+    ]
   }
 }
