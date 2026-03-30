@@ -2,7 +2,6 @@ import path from "path";
 import fs from "fs";
 import type { StrataDoc } from "./schema";
 import { StrataDocSchema } from "./schema";
-import { createProgram, extract } from "./extract";
 import { extractAll } from "./multi-extract";
 import { getChurn, getTemporalCoupling, markStaticDependencies } from "./git";
 import { computeHotspots } from "./hotspot";
