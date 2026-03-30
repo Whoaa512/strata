@@ -122,13 +122,16 @@ export function computeChangeRipple(
       blastCount,
     );
 
+    const MAX_STORED_FILES = 50;
+    const affectedArr = Array.from(affectedFiles);
+
     return {
       entityId: entity.id,
       rippleScore,
-      staticDeps: staticDeps.files,
-      temporalDeps: temporalDeps.map(t => t.filePath),
-      implicitCouplings,
-      affectedFiles: Array.from(affectedFiles),
+      staticDeps: staticDeps.files.slice(0, MAX_STORED_FILES),
+      temporalDeps: temporalDeps.map(t => t.filePath).slice(0, MAX_STORED_FILES),
+      implicitCouplings: implicitCouplings.slice(0, MAX_STORED_FILES),
+      affectedFiles: affectedArr.slice(0, MAX_STORED_FILES),
     };
   }).sort((a, b) => b.rippleScore - a.rippleScore);
 }
