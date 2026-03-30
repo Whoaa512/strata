@@ -39,12 +39,10 @@ export function computeBlastRadius(
     queue.push(...upstreamCallers);
   }
 
-  const MAX_STORED_CALLERS = 50;
-
   return {
     entityId,
-    directCallers: directCallers.slice(0, MAX_STORED_CALLERS),
-    transitiveCallers: Array.from(transitiveCallers).slice(0, MAX_STORED_CALLERS),
+    directCallers,
+    transitiveCallers: Array.from(transitiveCallers),
     radius: transitiveCallers.size,
   };
 }

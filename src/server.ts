@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { analyze, writeSvFile } from "./analyze";
+import { analyze, writeSvFile, toCompact } from "./analyze";
 import path from "path";
 import fs from "fs";
 
@@ -22,7 +22,7 @@ const server = Bun.serve({
     const url = new URL(req.url);
 
     if (url.pathname === "/api/data") {
-      return new Response(JSON.stringify(doc), {
+      return new Response(JSON.stringify(toCompact(doc)), {
         headers: { "Content-Type": "application/json" },
       });
     }

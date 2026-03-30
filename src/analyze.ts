@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import type { StrataDoc } from "./schema";
+import type { StrataDoc, StrataDocCompact } from "./schema";
 import { StrataDocSchema } from "./schema";
 import { extractAll } from "./multi-extract";
 import { getChurn, getTemporalCoupling, markStaticDependencies } from "./git";
@@ -56,14 +56,26 @@ export function analyze(rootDir: string): StrataDoc {
   return StrataDocSchema.parse(doc);
 }
 
-export function writeSvFile(doc: StrataDoc, rootDir: string): string {
-  const strataDir = path.join(rootDir, ".strata");
-  fs.mkdirSync(strataDir, { recursive: true });
-  const outPath = path.join(strataDir, "analysis.sv.json");
+export function toCompact(doc: StrataDoc): StrataDocCompact {
+  return {
+    ...doc,
+    blastRadius: doc.blastRadius.map(br => ({
+      entityId: br.entityId,
+      directCallerCount: br.directCallers.length,
+      radius: br.radius,
+    })),
+    changeRipple: doc.changeRipple.map(cr => ({
+      entityId: cr.entityId,
+      rippleScore: cr.rippleScore,
+      affectedFileCount: cr.affectedFiles.length,
+      implicitCouplingCount: cr.implicitCouplings.length,
+    })),
+  };
+}
 
-  const fd = fs.openSync(outPath, "w");
+function streamWrite(fd: number, doc: StrataDocCompact): void {
   fs.writeSync(fd, '{');
-  const keys = Object.keys(doc) as (keyof StrataDoc)[];
+  const keys = Object.keys(doc) as (keyof StrataDocCompact)[];
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     if (i > 0) fs.writeSync(fd, ',');
@@ -81,6 +93,16 @@ export function writeSvFile(doc: StrataDoc, rootDir: string): string {
     }
   }
   fs.writeSync(fd, '}');
+}
+
+export function writeSvFile(doc: StrataDoc, rootDir: string): string {
+  const strataDir = path.join(rootDir, ".strata");
+  fs.mkdirSync(strataDir, { recursive: true });
+  const outPath = path.join(strataDir, "analysis.sv.json");
+
+  const compact = toCompact(doc);
+  const fd = fs.openSync(outPath, "w");
+  streamWrite(fd, compact);
   fs.closeSync(fd);
   return outPath;
 }

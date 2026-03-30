@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { StrataDocSchema, EntitySchema, MetricsSchema } from "../src/schema";
+import { StrataDocSchema, StrataDocCompactSchema, EntitySchema, MetricsSchema } from "../src/schema";
+import { toCompact } from "../src/analyze";
+import type { StrataDoc } from "../src/schema";
 
 describe("MetricsSchema", () => {
   test("accepts valid metrics", () => {
@@ -107,5 +109,74 @@ describe("StrataDocSchema", () => {
       version: "0.2.0",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("StrataDocCompactSchema", () => {
+  test("accepts compact blast radius and change ripple", () => {
+    const result = StrataDocCompactSchema.safeParse({
+      version: "0.2.0",
+      analyzedAt: "2026-03-28T00:00:00.000Z",
+      rootDir: "/tmp/project",
+      entities: [],
+      callGraph: [],
+      churn: [],
+      temporalCoupling: [],
+      hotspots: [],
+      blastRadius: [{ entityId: "a:b:1", directCallerCount: 3, radius: 5 }],
+      changeRipple: [{ entityId: "a:b:1", rippleScore: 4.5, affectedFileCount: 3, implicitCouplingCount: 1 }],
+      agentRisk: [],
+      errors: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects full blast radius in compact schema", () => {
+    const result = StrataDocCompactSchema.safeParse({
+      version: "0.2.0",
+      analyzedAt: "2026-03-28T00:00:00.000Z",
+      rootDir: "/tmp/project",
+      entities: [],
+      callGraph: [],
+      churn: [],
+      temporalCoupling: [],
+      hotspots: [],
+      blastRadius: [{ entityId: "a:b:1", directCallers: ["x"], transitiveCallers: ["x"], radius: 1 }],
+      changeRipple: [],
+      agentRisk: [],
+      errors: [],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("toCompact", () => {
+  test("strips arrays from blast radius and change ripple", () => {
+    const doc: StrataDoc = {
+      version: "0.2.0",
+      analyzedAt: "2026-03-28T00:00:00.000Z",
+      rootDir: "/tmp/project",
+      entities: [],
+      callGraph: [],
+      churn: [],
+      temporalCoupling: [],
+      hotspots: [],
+      blastRadius: [
+        { entityId: "a:b:1", directCallers: ["x:y:1", "z:w:1"], transitiveCallers: ["x:y:1", "z:w:1", "q:r:1"], radius: 3 },
+      ],
+      changeRipple: [
+        { entityId: "a:b:1", rippleScore: 5.5, staticDeps: ["x.ts"], temporalDeps: ["y.ts"], implicitCouplings: [{ filePath: "z.ts", cochangeRate: 0.8 }], affectedFiles: ["x.ts", "y.ts", "z.ts"] },
+      ],
+      agentRisk: [],
+      errors: [],
+    };
+
+    const compact = toCompact(doc);
+
+    expect(compact.blastRadius[0]).toEqual({ entityId: "a:b:1", directCallerCount: 2, radius: 3 });
+    expect(compact.changeRipple[0]).toEqual({ entityId: "a:b:1", rippleScore: 5.5, affectedFileCount: 3, implicitCouplingCount: 1 });
+
+    const validated = StrataDocCompactSchema.safeParse(compact);
+    expect(validated.success).toBe(true);
   });
 });

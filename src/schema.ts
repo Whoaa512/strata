@@ -92,6 +92,34 @@ export const StrataDocSchema = z.object({
   errors: z.array(FileErrorSchema),
 });
 
+export const BlastRadiusCompactSchema = z.object({
+  entityId: z.string(),
+  directCallerCount: z.number().int().nonnegative(),
+  radius: z.number().int().nonnegative(),
+});
+
+export const ChangeRippleCompactSchema = z.object({
+  entityId: z.string(),
+  rippleScore: z.number().nonnegative(),
+  affectedFileCount: z.number().int().nonnegative(),
+  implicitCouplingCount: z.number().int().nonnegative(),
+});
+
+export const StrataDocCompactSchema = z.object({
+  version: z.literal("0.2.0"),
+  analyzedAt: z.string().datetime(),
+  rootDir: z.string(),
+  entities: z.array(EntitySchema),
+  callGraph: z.array(CallEdgeSchema),
+  churn: z.array(ChurnEntrySchema),
+  temporalCoupling: z.array(TemporalCouplingSchema),
+  hotspots: z.array(HotspotSchema),
+  blastRadius: z.array(BlastRadiusCompactSchema),
+  changeRipple: z.array(ChangeRippleCompactSchema),
+  agentRisk: z.array(AgentRiskSchema),
+  errors: z.array(FileErrorSchema),
+});
+
 export type Metrics = z.infer<typeof MetricsSchema>;
 export type Entity = z.infer<typeof EntitySchema>;
 export type CallEdge = z.infer<typeof CallEdgeSchema>;
@@ -103,3 +131,6 @@ export type FileError = z.infer<typeof FileErrorSchema>;
 export type ChangeRipple = z.infer<typeof ChangeRippleSchema>;
 export type AgentRisk = z.infer<typeof AgentRiskSchema>;
 export type StrataDoc = z.infer<typeof StrataDocSchema>;
+export type BlastRadiusCompact = z.infer<typeof BlastRadiusCompactSchema>;
+export type ChangeRippleCompact = z.infer<typeof ChangeRippleCompactSchema>;
+export type StrataDocCompact = z.infer<typeof StrataDocCompactSchema>;
