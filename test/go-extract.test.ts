@@ -113,8 +113,8 @@ func process(x int, y int) int {
       const result = extractor.extract(dir, files);
       const e = result.entities.find((e) => e.name === "process");
       expect(e).toBeDefined();
-      // 1(base) + if + else if + for + && + case + case = 7
-      expect(e!.metrics.cyclomatic).toBe(7);
+      // 1(base) + if + else if + for + if + && + case + case = 8
+      expect(e!.metrics.cyclomatic).toBe(8);
       expect(e!.metrics.parameterCount).toBe(2);
     } finally {
       cleanup(dir);

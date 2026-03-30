@@ -1,4 +1,4 @@
-import { Parser, Language, Node as SyntaxNode } from "web-tree-sitter";
+import { Parser, Language } from "web-tree-sitter";
 import path from "path";
 import fs from "fs";
 import type { Entity, CallEdge } from "./schema";
@@ -10,54 +10,31 @@ const PythonLang = await Language.load(
   path.join(import.meta.dir, "../node_modules/tree-sitter-python/tree-sitter-python.wasm"),
 );
 
+type SyntaxNode = Parser.SyntaxNode;
+
 function entityId(filePath: string, name: string, line: number): string {
   return `${filePath}:${name}:${line}`;
 }
 
-function isInsideClass(node: SyntaxNode): boolean {
-  let parent = node.parent;
-  while (parent) {
-    if (parent.type === "class_definition") return true;
-    if (parent.type === "function_definition") return false;
-    if (parent.type === "decorated_definition") {
-      const dd = parent;
-      parent = dd.parent;
-      continue;
-    }
-    parent = parent.parent;
-  }
-  return false;
-}
-
-function paramCount(funcNode: SyntaxNode): number {
-  const params = funcNode.childForFieldName("parameters");
+function paramCount(node: SyntaxNode): number {
+  const params = node.childForFieldName("parameters");
   if (!params) return 0;
-  let count = 0;
-  for (const child of params.namedChildren) {
-    if (child.type === "identifier" || child.type === "default_parameter" ||
-        child.type === "typed_parameter" || child.type === "typed_default_parameter" ||
-        child.type === "list_splat_pattern" || child.type === "dictionary_splat_pattern") {
-      count++;
-    }
-  }
-  return count;
+  return params.namedChildren.filter(
+    (c) =>
+      c.type === "identifier" ||
+      c.type === "default_parameter" ||
+      c.type === "typed_parameter" ||
+      c.type === "typed_default_parameter" ||
+      c.type === "list_splat_pattern" ||
+      c.type === "dictionary_splat_pattern",
+  ).length;
 }
 
-function conditionHasBooleanOp(ifNode: SyntaxNode): boolean {
-  for (const child of ifNode.namedChildren) {
-    if (child.type === "boolean_operator") return true;
-    if (child.type === "block" || child.type === "elif_clause" || child.type === "else_clause") break;
-  }
-  return false;
-}
-
-function calcCyclomatic(bodyNode: SyntaxNode): number {
+function computeCyclomatic(body: SyntaxNode): number {
   let complexity = 1;
-  function walk(node: SyntaxNode) {
+  const walk = (node: SyntaxNode) => {
     switch (node.type) {
       case "if_statement":
-        if (!conditionHasBooleanOp(node)) complexity++;
-        break;
       case "elif_clause":
       case "for_statement":
       case "while_statement":
@@ -71,100 +48,65 @@ function calcCyclomatic(bodyNode: SyntaxNode): number {
     for (const child of node.children) {
       walk(child);
     }
-  }
-  walk(bodyNode);
+  };
+  walk(body);
   return complexity;
 }
 
-function calcCognitive(bodyNode: SyntaxNode): number {
-  let total = 0;
+function computeCognitive(body: SyntaxNode, baseNesting: number): { cognitive: number; maxDepth: number } {
+  let cognitive = 0;
+  let maxDepth = baseNesting;
 
-  function walk(node: SyntaxNode, nesting: number) {
-    for (const child of node.children) {
-      let childNesting = nesting;
-      switch (child.type) {
-        case "if_statement":
-        case "for_statement":
-        case "while_statement":
-          total += 1 + nesting;
-          walkChildren(child, nesting + 1);
-          continue;
-        case "elif_clause":
-          total += 1 + nesting;
-          walkChildren(child, nesting + 1);
-          continue;
-        case "else_clause":
-          walkChildren(child, nesting + 1);
-          continue;
-        case "boolean_operator":
-          total += 1;
-          walk(child, nesting);
-          continue;
+  const walk = (node: SyntaxNode, nesting: number) => {
+    const incrementsNesting =
+      node.type === "if_statement" ||
+      node.type === "for_statement" ||
+      node.type === "while_statement";
+
+    if (incrementsNesting) {
+      cognitive += 1 + nesting;
+      const newNesting = nesting + 1;
+      if (newNesting > maxDepth) maxDepth = newNesting;
+      for (const child of node.children) {
+        walk(child, newNesting);
       }
-      walk(child, childNesting);
+      return;
     }
-  }
 
-  function walkChildren(node: SyntaxNode, nesting: number) {
+    if (node.type === "elif_clause" || node.type === "except_clause") {
+      cognitive += 1;
+    }
+
+    if (node.type === "boolean_operator") {
+      cognitive += 1;
+    }
+
     for (const child of node.children) {
       walk(child, nesting);
     }
-  }
+  };
 
-  walk(bodyNode, 0);
-  return total;
+  walk(body, baseNesting);
+  return { cognitive, maxDepth };
 }
 
-function calcMaxNesting(bodyNode: SyntaxNode): number {
-  let maxDepth = 0;
-
-  function walk(node: SyntaxNode, depth: number) {
-    for (const child of node.children) {
-      switch (child.type) {
-        case "if_statement":
-        case "for_statement":
-        case "while_statement":
-        case "try_statement": {
-          const newDepth = depth + 1;
-          if (newDepth > maxDepth) maxDepth = newDepth;
-          walk(child, newDepth);
-          continue;
-        }
-        case "elif_clause":
-        case "else_clause":
-        case "except_clause": {
-          if (depth > maxDepth) maxDepth = depth;
-          walk(child, depth);
-          continue;
-        }
-      }
-      walk(child, depth);
-    }
-  }
-
-  walk(bodyNode, 0);
-  return maxDepth;
-}
-
-function extractCalls(bodyNode: SyntaxNode): string[] {
+function collectCalls(body: SyntaxNode): string[] {
   const calls: string[] = [];
-  function walk(node: SyntaxNode) {
+  const walk = (node: SyntaxNode) => {
     if (node.type === "call") {
       const fn = node.childForFieldName("function");
-      if (fn) {
-        if (fn.type === "identifier") {
-          calls.push(fn.text);
-        } else if (fn.type === "attribute") {
-          const attr = fn.childForFieldName("attribute");
-          if (attr) calls.push(attr.text);
-        }
+      if (fn && fn.type === "identifier") {
+        calls.push(fn.text);
+      } else if (fn && fn.type === "attribute") {
+        const attr = fn.childForFieldName("attribute");
+        if (attr) calls.push(attr.text);
       }
     }
     for (const child of node.children) {
       walk(child);
     }
-  }
-  walk(bodyNode);
+  };
+  walk(body);
   return calls;
 }
 
@@ -173,149 +115,148 @@ function hasError(node: SyntaxNode): boolean {
   return false;
 }
 
-function extractFile(
-  filePath: string,
-  source: string,
-): { entities: Entity[]; callsMap: Map<string, string[]>; hasErrors: boolean } {
-  const parser = new Parser();
-  parser.setLanguage(PythonLang);
-  const tree = parser.parse(source);
-
-  const entities: Entity[] = [];
-  const callsMap = new Map<string, string[]>();
-  const rootHasErrors = tree.rootNode.hasError;
-
-  function visitFunction(node: SyntaxNode, insideClass: boolean) {
-    const nameNode = node.childForFieldName("name");
-    if (!nameNode) return;
-
-    const name = nameNode.text;
-    const kind = insideClass ? "method" : "function";
-    const startLine = node.startPosition.row + 1;
-    const endLine = node.endPosition.row + 1;
-    const body = node.childForFieldName("body");
-    const id = entityId(filePath, name, startLine);
-
-    const entity: Entity = {
-      id,
-      name,
-      kind,
-      filePath,
-      startLine,
-      endLine,
-      metrics: {
-        cyclomatic: calcCyclomatic(node),
-        cognitive: calcCognitive(node),
-        loc: endLine - startLine + 1,
-        maxNestingDepth: calcMaxNesting(node),
-        parameterCount: paramCount(node),
-      },
-    };
-    entities.push(entity);
-
-    if (body) {
-      callsMap.set(id, extractCalls(body));
-    }
-
-    if (body) {
-      walkNodes(body, false);
-    }
-  }
-
-  function visitClass(node: SyntaxNode) {
-    const nameNode = node.childForFieldName("name");
-    if (!nameNode) return;
-
-    const name = nameNode.text;
-    const startLine = node.startPosition.row + 1;
-    const endLine = node.endPosition.row + 1;
-    const id = entityId(filePath, name, startLine);
-
-    entities.push({
-      id,
-      name,
-      kind: "class",
-      filePath,
-      startLine,
-      endLine,
-      metrics: {
-        cyclomatic: 0,
-        cognitive: 0,
-        loc: endLine - startLine + 1,
-        maxNestingDepth: 0,
-        parameterCount: 0,
-      },
-    });
-
-    const body = node.childForFieldName("body");
-    if (body) {
-      walkNodes(body, true);
-    }
-  }
-
-  function walkNodes(node: SyntaxNode, insideClass: boolean) {
-    for (const child of node.namedChildren) {
-      if (child.type === "function_definition") {
-        visitFunction(child, insideClass);
-      } else if (child.type === "class_definition") {
-        visitClass(child);
-      } else if (child.type === "decorated_definition") {
-        const inner = child.namedChildren.find(
-          (c) => c.type === "function_definition" || c.type === "class_definition",
-        );
-        if (inner?.type === "function_definition") {
-          visitFunction(inner, insideClass);
-        } else if (inner?.type === "class_definition") {
-          visitClass(inner);
-        }
+function isInsideClass(node: SyntaxNode): boolean {
+  let parent = node.parent;
+  while (parent) {
+    if (parent.type === "class_definition") return true;
+    if (parent.type === "decorated_definition") {
+      const grandparent = parent.parent;
+      if (grandparent && grandparent.type === "class_definition") return true;
+      if (grandparent && grandparent.type === "block") {
+        const block_parent = grandparent.parent;
+        if (block_parent && block_parent.type === "class_definition") return true;
       }
     }
+    if (parent.type === "block") {
+      const blockParent = parent.parent;
+      if (blockParent && blockParent.type === "class_definition") return true;
+    }
+    parent = parent.parent;
   }
+  return false;
+}
 
-  walkNodes(tree.rootNode, false);
+function extractFromTree(
+  tree: Parser.Tree,
+  filePath: string,
+): { entities: Entity[]; callsByEntity: Map<string, string[]> } {
+  const entities: Entity[] = [];
+  const callsByEntity = new Map<string, string[]>();
 
-  return { entities, callsMap, hasErrors: rootHasErrors };
+  const walk = (node: SyntaxNode) => {
+    if (node.type === "function_definition") {
+      const nameNode = node.childForFieldName("name");
+      if (!nameNode) return;
+
+      const name = nameNode.text;
+      const startLine = node.startPosition.row + 1;
+      const endLine = node.endPosition.row + 1;
+      const kind = isInsideClass(node) ? "method" : "function";
+      const body = node.childForFieldName("body");
+      const params = paramCount(node);
+
+      const cyc = body ? computeCyclomatic(body) : 1;
+      const { cognitive, maxDepth } = body
+        ? computeCognitive(body, 0)
+        : { cognitive: 0, maxDepth: 0 };
+
+      const id = entityId(filePath, name, startLine);
+      entities.push({
+        id,
+        name,
+        kind,
+        filePath,
+        startLine,
+        endLine,
+        metrics: {
+          cyclomatic: cyc,
+          cognitive,
+          loc: endLine - startLine + 1,
+          maxNestingDepth: maxDepth,
+          parameterCount: params,
+        },
+      });
+
+      if (body) {
+        callsByEntity.set(id, collectCalls(body));
+      }
+    }
+
+    if (node.type === "class_definition") {
+      const nameNode = node.childForFieldName("name");
+      if (!nameNode) return;
+
+      const name = nameNode.text;
+      const startLine = node.startPosition.row + 1;
+      const endLine = node.endPosition.row + 1;
+      const id = entityId(filePath, name, startLine);
+
+      entities.push({
+        id,
+        name,
+        kind: "class",
+        filePath,
+        startLine,
+        endLine,
+        metrics: {
+          cyclomatic: 0,
+          cognitive: 0,
+          loc: endLine - startLine + 1,
+          maxNestingDepth: 0,
+          parameterCount: 0,
+        },
+      });
+    }
+
+    for (const child of node.children) {
+      walk(child);
+    }
+  };
+
+  walk(tree.rootNode);
+  return { entities, callsByEntity };
 }
 
 export class PythonExtractor implements LanguageExtractor {
   extensions = [".py"];
 
   extract(rootDir: string, filePaths: string[]): ExtractionResult {
+    const parser = new Parser();
+    parser.setLanguage(PythonLang);
+
     const allEntities: Entity[] = [];
-    const allCallsMap = new Map<string, string[]>();
+    const allCallsByEntity = new Map<string, string[]>();
     const errors: Array<{ filePath: string; error: string }> = [];
 
     for (const absPath of filePaths) {
       const relPath = path.relative(rootDir, absPath);
-      let source: string;
       try {
-        source = fs.readFileSync(absPath, "utf-8");
-      } catch (err) {
-        errors.push({ filePath: relPath, error: String(err) });
-        continue;
-      }
+        const source = fs.readFileSync(absPath, "utf-8");
+        const tree = parser.parse(source);
 
-      const result = extractFile(relPath, source);
-      allEntities.push(...result.entities);
-      for (const [k, v] of result.callsMap) {
-        allCallsMap.set(k, v);
-      }
-      if (result.hasErrors) {
-        errors.push({ filePath: relPath, error: "Parse error" });
+        if (tree.rootNode.hasError) {
+          errors.push({ filePath: relPath, error: "Syntax error in file" });
+        }
+
+        const { entities, callsByEntity } = extractFromTree(tree, relPath);
+        for (const e of entities) allEntities.push(e);
+        for (const [k, v] of callsByEntity) allCallsByEntity.set(k, v);
+      } catch (err: any) {
+        errors.push({ filePath: relPath, error: err.message ?? String(err) });
       }
     }
 
-    const entityNameToId = new Map<string, string>();
+    const nameToId = new Map<string, string>();
     for (const e of allEntities) {
       if (e.kind !== "class") {
-        entityNameToId.set(e.name, e.id);
+        nameToId.set(e.name, e.id);
       }
     }
 
     const callGraph: CallEdge[] = [];
-    for (const [callerId, calls] of allCallsMap) {
+    for (const [callerId, calls] of allCallsByEntity) {
       for (const calleeName of calls) {
-        const calleeId = entityNameToId.get(calleeName);
+        const calleeId = nameToId.get(calleeName);
         if (calleeId && calleeId !== callerId) {
           callGraph.push({ caller: callerId, callee: calleeId });
         }

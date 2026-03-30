@@ -10,85 +10,84 @@ const GoLang = await Language.load(
   path.join(import.meta.dir, "../node_modules/tree-sitter-go/tree-sitter-go.wasm"),
 );
 
+type SyntaxNode = Parser.SyntaxNode;
+
 function entityId(filePath: string, name: string, line: number): string {
   return `${filePath}:${name}:${line}`;
 }
 
-function countParams(paramsNode: Parser.SyntaxNode): number {
+function countParams(paramsNode: SyntaxNode | null): number {
+  if (!paramsNode) return 0;
   let count = 0;
   for (const child of paramsNode.namedChildren) {
     if (child.type !== "parameter_declaration") continue;
     const identifiers = child.namedChildren.filter((c) => c.type === "identifier");
-    count += Math.max(identifiers.length, 1);
+    count += identifiers.length > 0 ? identifiers.length : 1;
   }
   return count;
 }
 
-function computeCyclomatic(node: Parser.SyntaxNode): number {
-  let complexity = 1;
-  function walk(n: Parser.SyntaxNode) {
-    switch (n.type) {
+function cyclomatic(body: SyntaxNode): number {
+  let cc = 1;
+  function walk(node: SyntaxNode) {
+    switch (node.type) {
       case "if_statement":
       case "for_statement":
       case "expression_case":
-        complexity++;
+        cc++;
         break;
+      case "binary_expression": {
+        const op = node.childForFieldName("operator")?.text ?? node.children.find((c) => c.type === "&&" || c.type === "||")?.type;
+        if (op === "&&" || op === "||") cc++;
+        break;
+      }
     }
-    for (const child of n.namedChildren) {
+    for (const child of node.namedChildren) {
       walk(child);
     }
   }
-  walk(node);
-  return complexity;
+  walk(body);
+  return cc;
 }
 
-function computeCognitive(body: Parser.SyntaxNode): { cognitive: number; maxDepth: number } {
-  let cognitive = 0;
+function cognitive(body: SyntaxNode): { cognitive: number; maxDepth: number } {
+  let score = 0;
   let maxDepth = 0;
 
-  function walk(n: Parser.SyntaxNode, depth: number) {
+  function walk(node: SyntaxNode, depth: number) {
     let increment = false;
-    switch (n.type) {
-      case "if_statement":
-      case "for_statement":
-        increment = true;
-        break;
-    }
-
-    if (increment) {
-      cognitive += 1 + depth;
+    if (node.type === "if_statement" || node.type === "for_statement") {
+      increment = true;
+      score += 1 + depth;
       const newDepth = depth + 1;
       if (newDepth > maxDepth) maxDepth = newDepth;
-      for (const child of n.namedChildren) {
+      for (const child of node.namedChildren) {
         walk(child, newDepth);
       }
       return;
     }
-
-    for (const child of n.namedChildren) {
+    for (const child of node.namedChildren) {
       walk(child, depth);
     }
   }
 
-  for (const child of body.namedChildren) {
-    walk(child, 0);
-  }
-  return { cognitive, maxDepth };
+  walk(body, 0);
+  return { cognitive: score, maxDepth };
 }
 
-function extractCalls(body: Parser.SyntaxNode): string[] {
+function extractCalls(body: SyntaxNode): string[] {
   const calls: string[] = [];
-  function walk(n: Parser.SyntaxNode) {
-    if (n.type === "call_expression") {
-      const fn = n.childForFieldName("function");
+  function walk(node: SyntaxNode) {
+    if (node.type === "call_expression") {
+      const fn = node.childForFieldName("function");
       if (fn) {
-        const text = fn.type === "selector_expression"
-          ? fn.childForFieldName("field")?.text ?? fn.text
+        const name = fn.type === "selector_expression"
+          ? fn.childForFieldName("field")?.text
           : fn.text;
-        if (text) calls.push(text);
+        if (name) calls.push(name);
       }
     }
-    for (const child of n.namedChildren) {
+    for (const child of node.namedChildren) {
       walk(child);
     }
   }
@@ -96,8 +95,11 @@ function extractCalls(body: Parser.SyntaxNode): string[] {
   return calls;
 }
 
-function hasError(node: Parser.SyntaxNode): boolean {
-  if (node.type === "ERROR" || node.hasError) return true;
+function hasError(node: SyntaxNode): boolean {
+  if (node.type === "ERROR" || node.isMissing) return true;
+  for (const child of node.children) {
+    if (hasError(child)) return true;
+  }
   return false;
 }
 
@@ -110,23 +112,18 @@ export class GoExtractor implements LanguageExtractor {
 
     const entities: Entity[] = [];
     const callGraph: CallEdge[] = [];
-    const errors: Array<{ filePath: string; error: string }> = [];
+    const errors: ExtractionResult["errors"] = [];
 
     for (const absPath of filePaths) {
       const relPath = path.relative(rootDir, absPath);
-      let source: string;
-      try {
-        source = fs.readFileSync(absPath, "utf-8");
-      } catch (e: any) {
-        errors.push({ filePath: relPath, error: e.message });
-        continue;
-      }
-
+      const source = fs.readFileSync(absPath, "utf-8");
       const tree = parser.parse(source);
 
-      if (tree.rootNode.hasError) {
+      if (hasError(tree.rootNode)) {
         errors.push({ filePath: relPath, error: "syntax error" });
       }
+
+      const fileEntities: Entity[] = [];
 
       for (const node of tree.rootNode.namedChildren) {
         if (node.type !== "function_declaration" && node.type !== "method_declaration") continue;
@@ -135,50 +132,53 @@ export class GoExtractor implements LanguageExtractor {
         if (!nameNode) continue;
 
         const name = nameNode.text;
-        const kind = node.type === "method_declaration" ? "method" : "function";
+        const kind: Entity["kind"] = node.type === "method_declaration" ? "method" : "function";
         const startLine = node.startPosition.row + 1;
         const endLine = node.endPosition.row + 1;
         const body = node.childForFieldName("body");
         const params = node.childForFieldName("parameters");
-
-        const parameterCount = params ? countParams(params) : 0;
         const loc = endLine - startLine + 1;
-        const cyclomatic = body ? computeCyclomatic(body) : 1;
-        const { cognitive, maxDepth } = body
-          ? computeCognitive(body)
-          : { cognitive: 0, maxDepth: 0 };
+        const cc = body ? cyclomatic(body) : 1;
+        const cog = body ? cognitive(body) : { cognitive: 0, maxDepth: 0 };
 
-        const id = entityId(relPath, name, startLine);
-        entities.push({
-          id,
+        const entity: Entity = {
+          id: entityId(relPath, name, startLine),
           name,
           kind,
           filePath: relPath,
           startLine,
           endLine,
-          metrics: { cyclomatic, cognitive, loc, maxNestingDepth: maxDepth, parameterCount },
-        });
+          metrics: {
+            cyclomatic: cc,
+            cognitive: cog.cognitive,
+            loc,
+            maxNestingDepth: cog.maxDepth,
+            parameterCount: countParams(params),
+          },
+        };
 
-        if (body) {
-          const callNames = extractCalls(body);
-          for (const callee of callNames) {
-            callGraph.push({ caller: id, callee });
+        fileEntities.push(entity);
+        entities.push(entity);
+      }
+
+      const entityNames = new Set(fileEntities.map((e) => e.name));
+      for (const entity of fileEntities) {
+        const funcNode = tree.rootNode.namedChildren.find(
+          (n) =>
+            (n.type === "function_declaration" || n.type === "method_declaration") &&
+            n.childForFieldName("name")?.text === entity.name,
+        );
+        const body = funcNode?.childForFieldName("body");
+        if (!body) continue;
+
+        for (const callee of extractCalls(body)) {
+          if (entityNames.has(callee) && callee !== entity.name) {
+            const target = fileEntities.find((e) => e.name === callee);
+            if (target) {
+              callGraph.push({ caller: entity.id, callee: target.id });
+            }
           }
         }
-      }
-    }
-
-    const entityByName = new Map<string, string>();
-    for (const e of entities) {
-      entityByName.set(e.name, e.id);
-    }
-    for (let i = 0; i < callGraph.length; i++) {
-      const resolved = entityByName.get(callGraph[i].callee);
-      if (resolved) {
-        callGraph[i] = { caller: callGraph[i].caller, callee: resolved };
-      } else {
-        callGraph.splice(i, 1);
-        i--;
       }
     }
 
