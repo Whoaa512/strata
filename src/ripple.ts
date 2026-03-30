@@ -89,9 +89,10 @@ export function computeChangeRipple(
   );
 
   const couplingByFile = buildCouplingIndex(temporalCoupling);
+  const staticDepsCache = new Map<string, StaticDeps>();
 
   return relevantEntities.map(entity => {
-    const staticDeps = getStaticDeps(entity.id, calleeIndex, callerIndex, entityById);
+    const staticDeps = getStaticDeps(entity.id, calleeIndex, callerIndex, entityById, staticDepsCache);
     const temporalDeps = getTemporalDeps(entity.filePath, couplingByFile, staticDeps);
     const implicitCouplings = temporalDeps
       .filter(td => !staticDeps.fileSet.has(td.filePath))
@@ -160,9 +161,17 @@ function getStaticDeps(
   calleeIndex: Map<string, string[]>,
   callerIndex: Map<string, string[]>,
   entityById: Map<string, Entity>,
+  cache: Map<string, StaticDeps>,
 ): StaticDeps {
+  const cached = cache.get(entityId);
+  if (cached) return cached;
+
   const entity = entityById.get(entityId);
-  if (!entity) return { files: [], fileSet: new Set() };
+  if (!entity) {
+    const empty = { files: [], fileSet: new Set<string>() };
+    cache.set(entityId, empty);
+    return empty;
+  }
 
   const files = new Set<string>();
   const seen = new Set<string>();
@@ -179,7 +188,15 @@ function getStaticDeps(
     const callees = calleeIndex.get(current) ?? [];
     const callers = callerIndex.get(current) ?? [];
 
-    for (const dep of [...callees, ...callers]) {
+    for (const dep of callees) {
+      const depEntity = entityById.get(dep);
+      if (depEntity && depEntity.filePath !== entity.filePath) {
+        files.add(depEntity.filePath);
+      }
+      if (!seen.has(dep)) queue.push([dep, depth + 1]);
+    }
+
+    for (const dep of callers) {
       const depEntity = entityById.get(dep);
       if (depEntity && depEntity.filePath !== entity.filePath) {
         files.add(depEntity.filePath);
@@ -188,7 +205,9 @@ function getStaticDeps(
     }
   }
 
-  return { files: Array.from(files), fileSet: files };
+  const result = { files: Array.from(files), fileSet: files };
+  cache.set(entityId, result);
+  return result;
 }
 
 interface TemporalDep {
