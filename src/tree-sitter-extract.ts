@@ -1,4 +1,4 @@
-import { Parser, Language } from "web-tree-sitter";
+import { Parser, Language, type Node, type Tree } from "web-tree-sitter";
 import path from "path";
 import fs from "fs";
 import type { Entity, CallEdge, Metrics } from "./schema";
@@ -7,7 +7,7 @@ import type { LanguageExtractor } from "./extractor";
 
 await Parser.init();
 
-type SyntaxNode = Parser.SyntaxNode;
+type SyntaxNode = Node;
 
 export interface LangConfig {
   extensions: string[];
@@ -40,7 +40,7 @@ function computeCyclomatic(body: SyntaxNode, config: LangConfig): number {
         cc++;
       } else if (node.type === "binary_expression") {
         const op = node.childForFieldName("operator")?.text
-          ?? node.children.find((c) => config.cyclomaticBoolOps.includes(c.type ?? ""))?.type;
+          ?? node.children.find((c: SyntaxNode) => config.cyclomaticBoolOps.includes(c.type ?? ""))?.type;
         if (op && config.cyclomaticBoolOps.includes(op)) cc++;
       }
     }
@@ -75,7 +75,7 @@ function computeCognitive(body: SyntaxNode, config: LangConfig): { cognitive: nu
       cognitive += 1;
     } else if (node.type === "binary_expression") {
       const op = node.childForFieldName("operator")?.text
-        ?? node.children.find((c) => config.cyclomaticBoolOps.includes(c.type ?? ""))?.type;
+        ?? node.children.find((c: SyntaxNode) => config.cyclomaticBoolOps.includes(c.type ?? ""))?.type;
       if (op && config.cyclomaticBoolOps.includes(op)) cognitive += 1;
     }
 
@@ -109,7 +109,7 @@ interface ExtractedEntity {
 }
 
 function extractFromTree(
-  tree: Parser.Tree,
+  tree: Tree,
   filePath: string,
   config: LangConfig,
 ): { entities: ExtractedEntity[]; classEntities: Entity[] } {
@@ -184,9 +184,9 @@ function extractFromTree(
 export class TreeSitterExtractor implements LanguageExtractor {
   extensions: string[];
   private config: LangConfig;
-  private lang: Parser.Language;
+  private lang: Language;
 
-  constructor(config: LangConfig, lang: Parser.Language) {
+  constructor(config: LangConfig, lang: Language) {
     this.extensions = config.extensions;
     this.config = config;
     this.lang = lang;
@@ -205,6 +205,10 @@ export class TreeSitterExtractor implements LanguageExtractor {
       try {
         const source = fs.readFileSync(absPath, "utf-8");
         const tree = parser.parse(source);
+        if (!tree) {
+          errors.push({ filePath: relPath, error: "Parser returned null" });
+          continue;
+        }
 
         if (tree.rootNode.hasError) {
           errors.push({ filePath: relPath, error: "Syntax error in file" });
@@ -244,6 +248,6 @@ export class TreeSitterExtractor implements LanguageExtractor {
   }
 }
 
-export async function loadLanguage(wasmPath: string): Promise<Parser.Language> {
+export async function loadLanguage(wasmPath: string): Promise<Language> {
   return Language.load(wasmPath);
 }

@@ -1,9 +1,9 @@
 import path from "path";
-import type Parser from "web-tree-sitter";
+import type { Node } from "web-tree-sitter";
 import { TreeSitterExtractor, loadLanguage } from "./tree-sitter-extract";
 import type { LangConfig } from "./tree-sitter-extract";
 
-type SyntaxNode = Parser.SyntaxNode;
+type SyntaxNode = Node;
 
 const lang = await loadLanguage(
   path.join(import.meta.dir, "../node_modules/tree-sitter-go/tree-sitter-go.wasm"),
@@ -15,7 +15,7 @@ function countGoParams(node: SyntaxNode): number {
   let count = 0;
   for (const child of params.namedChildren) {
     if (child.type !== "parameter_declaration") continue;
-    const ids = child.namedChildren.filter((c) => c.type === "identifier");
+    const ids = child.namedChildren.filter((c: SyntaxNode) => c.type === "identifier");
     count += ids.length > 0 ? ids.length : 1;
   }
   return count;

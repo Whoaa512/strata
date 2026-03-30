@@ -1,9 +1,9 @@
 import path from "path";
-import type Parser from "web-tree-sitter";
+import type { Node } from "web-tree-sitter";
 import { TreeSitterExtractor, loadLanguage } from "./tree-sitter-extract";
 import type { LangConfig } from "./tree-sitter-extract";
 
-type SyntaxNode = Parser.SyntaxNode;
+type SyntaxNode = Node;
 
 const lang = await loadLanguage(
   path.join(import.meta.dir, "../node_modules/tree-sitter-python/tree-sitter-python.wasm"),
@@ -32,7 +32,7 @@ const config: LangConfig = {
     const params = node.childForFieldName("parameters");
     if (!params) return 0;
     return params.namedChildren.filter(
-      (c) =>
+      (c: SyntaxNode) =>
         c.type === "identifier" ||
         c.type === "default_parameter" ||
         c.type === "typed_parameter" ||
