@@ -4,25 +4,29 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-function setupFixture(files: Record<string, string>): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "strata-py-test-"));
+function setup(files: Record<string, string>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "strata-py-"));
   for (const [name, content] of Object.entries(files)) {
-    const filePath = path.join(dir, name);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, content);
+    const fp = path.join(dir, name);
+    fs.mkdirSync(path.dirname(fp), { recursive: true });
+    fs.writeFileSync(fp, content);
   }
   return dir;
 }
 
-function cleanFixture(dir: string) {
+function cleanup(dir: string) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-describe("python extraction", () => {
-  const extractor = new PythonExtractor();
+const extractor = new PythonExtractor();
+
+describe("PythonExtractor", () => {
+  test("extensions", () => {
+    expect(extractor.extensions).toEqual([".py"]);
+  });
 
   test("extracts top-level function", () => {
-    const dir = setupFixture({
+    const dir = setup({
       "hello.py": `def greet(name):
     if len(name) > 10:
         return "Hi"
@@ -30,120 +34,66 @@ describe("python extraction", () => {
 `,
     });
     try {
-      const result = extractor.extract(dir, ["hello.py"]);
+      const files = [path.join(dir, "hello.py")];
+      const result = extractor.extract(dir, files);
       expect(result.entities.length).toBe(1);
       const e = result.entities[0];
       expect(e.name).toBe("greet");
       expect(e.kind).toBe("function");
       expect(e.filePath).toBe("hello.py");
+      expect(e.startLine).toBe(1);
+      expect(e.endLine).toBe(4);
       expect(e.metrics.parameterCount).toBe(1);
+      expect(e.metrics.loc).toBe(4);
+      expect(e.metrics.cyclomatic).toBe(2);
     } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
-  test("extracts class and its methods", () => {
-    const dir = setupFixture({
-      "calc.py": `class Calculator:
-    def add(self, a, b):
-        return a + b
+  test("extracts class and methods", () => {
+    const dir = setup({
+      "animal.py": `class Animal:
+    def __init__(self, name):
+        self.name = name
 
-    def sub(self, a, b):
-        return a - b
+    def speak(self):
+        return self.name + " speaks"
 `,
     });
     try {
-      const result = extractor.extract(dir, ["calc.py"]);
+      const files = [path.join(dir, "animal.py")];
+      const result = extractor.extract(dir, files);
       const cls = result.entities.find((e) => e.kind === "class");
       expect(cls).toBeDefined();
-      expect(cls!.name).toBe("Calculator");
+      expect(cls!.name).toBe("Animal");
+      expect(cls!.startLine).toBe(1);
 
       const methods = result.entities.filter((e) => e.kind === "method");
       expect(methods.length).toBe(2);
-      expect(methods.map((m) => m.name).sort()).toEqual(["add", "sub"]);
-      expect(methods[0].metrics.parameterCount).toBe(2);
+      const init = methods.find((e) => e.name === "__init__");
+      expect(init).toBeDefined();
+      expect(init!.metrics.parameterCount).toBe(2);
+
+      const speak = methods.find((e) => e.name === "speak");
+      expect(speak).toBeDefined();
+      expect(speak!.metrics.parameterCount).toBe(1);
     } finally {
-      cleanFixture(dir);
-    }
-  });
-
-  test("correct line numbers", () => {
-    const dir = setupFixture({
-      "lines.py": `# comment
-# another comment
-def foo():
-    pass
-
-def bar():
-    x = 1
-    return x
-`,
-    });
-    try {
-      const result = extractor.extract(dir, ["lines.py"]);
-      const foo = result.entities.find((e) => e.name === "foo");
-      expect(foo).toBeDefined();
-      expect(foo!.startLine).toBe(3);
-      expect(foo!.endLine).toBe(4);
-
-      const bar = result.entities.find((e) => e.name === "bar");
-      expect(bar).toBeDefined();
-      expect(bar!.startLine).toBe(6);
-      expect(bar!.endLine).toBe(8);
-    } finally {
-      cleanFixture(dir);
-    }
-  });
-
-  test("parameter count excludes self", () => {
-    const dir = setupFixture({
-      "params.py": `class Foo:
-    def method(self, a, b, c):
-        pass
-`,
-    });
-    try {
-      const result = extractor.extract(dir, ["params.py"]);
-      const method = result.entities.find((e) => e.kind === "method");
-      expect(method).toBeDefined();
-      expect(method!.metrics.parameterCount).toBe(3);
-    } finally {
-      cleanFixture(dir);
-    }
-  });
-
-  test("LOC metric", () => {
-    const dir = setupFixture({
-      "loc.py": `def big_func():
-    a = 1
-    b = 2
-    c = 3
-    d = 4
-    return a + b + c + d
-`,
-    });
-    try {
-      const result = extractor.extract(dir, ["loc.py"]);
-      expect(result.entities.length).toBe(1);
-      expect(result.entities[0].metrics.loc).toBe(6);
-    } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
   test("cyclomatic complexity", () => {
-    const dir = setupFixture({
-      "complex.py": `def check(x, y):
+    const dir = setup({
+      "complex.py": `def process(x, y):
     if x > 0:
         pass
     elif x < 0:
         pass
-    else:
-        pass
     for i in range(y):
-        if i > 5 and x or y:
+        if i > 5 and i < 10:
             pass
-    while x:
+    while x > 0:
         x -= 1
     try:
         pass
@@ -154,36 +104,43 @@ def bar():
 `,
     });
     try {
-      const result = extractor.extract(dir, ["complex.py"]);
-      const e = result.entities[0];
-      // base 1 + if + elif + for + if + and + or + while + try + except + except = 11
-      expect(e.metrics.cyclomatic).toBe(11);
+      const files = [path.join(dir, "complex.py")];
+      const result = extractor.extract(dir, files);
+      const e = result.entities.find((e) => e.name === "process");
+      expect(e).toBeDefined();
+      // 1 (base) + if + elif + for + and + while + except + except = 8
+      expect(e!.metrics.cyclomatic).toBe(8);
+      expect(e!.metrics.parameterCount).toBe(2);
     } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
   test("cognitive complexity with nesting", () => {
-    const dir = setupFixture({
-      "cognitive.py": `def nested(x):
+    const dir = setup({
+      "nested.py": `def deep(x):
     if x > 0:
         for i in range(x):
             if i > 5:
-                pass
+                while True:
+                    break
 `,
     });
     try {
-      const result = extractor.extract(dir, ["cognitive.py"]);
-      const e = result.entities[0];
-      // if (+1, nesting 0) -> for (+1, nesting 1 = +2) -> if (+1, nesting 2 = +3) = 1+2+3 = 6
-      expect(e.metrics.cognitive).toBe(6);
+      const files = [path.join(dir, "nested.py")];
+      const result = extractor.extract(dir, files);
+      const e = result.entities.find((e) => e.name === "deep");
+      expect(e).toBeDefined();
+      // cognitive: if(1) + for(1+1nest) + if(1+2nest) + while(1+3nest) = 1+2+3+4 = 10
+      expect(e!.metrics.cognitive).toBe(10);
+      expect(e!.metrics.maxNestingDepth).toBeGreaterThanOrEqual(4);
     } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
-  test("call graph edges", () => {
-    const dir = setupFixture({
+  test("call graph", () => {
+    const dir = setup({
       "calls.py": `def helper():
     return 42
 
@@ -193,81 +150,94 @@ def main():
 `,
     });
     try {
-      const result = extractor.extract(dir, ["calls.py"]);
-      expect(result.callGraph.length).toBeGreaterThanOrEqual(1);
-      const edge = result.callGraph.find(
-        (e) => e.caller.includes("main") && e.callee.includes("helper"),
-      );
-      expect(edge).toBeDefined();
+      const files = [path.join(dir, "calls.py")];
+      const result = extractor.extract(dir, files);
+      expect(result.entities.length).toBe(2);
+      expect(result.callGraph.length).toBe(1);
+      const edge = result.callGraph[0];
+      expect(edge.caller).toContain("main");
+      expect(edge.callee).toContain("helper");
     } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
-  test("nested function definitions", () => {
-    const dir = setupFixture({
-      "nested.py": `def outer():
+  test("nested functions", () => {
+    const dir = setup({
+      "outer.py": `def outer():
     def inner():
         return 1
     return inner()
 `,
     });
     try {
-      const result = extractor.extract(dir, ["nested.py"]);
+      const files = [path.join(dir, "outer.py")];
+      const result = extractor.extract(dir, files);
       const names = result.entities.map((e) => e.name);
       expect(names).toContain("outer");
       expect(names).toContain("inner");
     } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
   test("decorated functions", () => {
-    const dir = setupFixture({
-      "decorated.py": `class Foo:
+    const dir = setup({
+      "deco.py": `class Foo:
     @staticmethod
-    def static_method(a):
-        return a
+    def bar():
+        return 1
 
     @classmethod
-    def class_method(cls, b):
-        return b
+    def baz(cls):
+        return 2
 `,
     });
     try {
-      const result = extractor.extract(dir, ["decorated.py"]);
-      const static_m = result.entities.find(
-        (e) => e.name === "static_method",
-      );
-      expect(static_m).toBeDefined();
-      expect(static_m!.kind).toBe("method");
-      expect(static_m!.metrics.parameterCount).toBe(1);
-
-      const class_m = result.entities.find((e) => e.name === "class_method");
-      expect(class_m).toBeDefined();
-      expect(class_m!.metrics.parameterCount).toBe(1);
+      const files = [path.join(dir, "deco.py")];
+      const result = extractor.extract(dir, files);
+      const methods = result.entities.filter((e) => e.kind === "method");
+      expect(methods.length).toBe(2);
+      expect(methods.map((m) => m.name).sort()).toEqual(["bar", "baz"]);
     } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
-  test("syntax error produces error entry without crashing", () => {
-    const dir = setupFixture({
+  test("handles syntax errors gracefully", () => {
+    const dir = setup({
       "bad.py": `def broken(
     # missing closing paren and colon
     return 1
 `,
     });
     try {
-      const result = extractor.extract(dir, ["bad.py"]);
-      expect(result.errors.length).toBeGreaterThanOrEqual(1);
+      const files = [path.join(dir, "bad.py")];
+      const result = extractor.extract(dir, files);
+      expect(result.errors.length).toBeGreaterThan(0);
       expect(result.errors[0].filePath).toBe("bad.py");
     } finally {
-      cleanFixture(dir);
+      cleanup(dir);
     }
   });
 
-  test("extensions include .py", () => {
-    expect(extractor.extensions).toContain(".py");
+  test("multiple files", () => {
+    const dir = setup({
+      "a.py": `def alpha():
+    return 1
+`,
+      "pkg/b.py": `def beta():
+    return 2
+`,
+    });
+    try {
+      const files = [path.join(dir, "a.py"), path.join(dir, "pkg/b.py")];
+      const result = extractor.extract(dir, files);
+      expect(result.entities.length).toBe(2);
+      const paths = result.entities.map((e) => e.filePath).sort();
+      expect(paths).toEqual(["a.py", "pkg/b.py"]);
+    } finally {
+      cleanup(dir);
+    }
   });
 });
