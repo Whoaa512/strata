@@ -7,14 +7,38 @@ import type { LanguageExtractor } from "./extractor";
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", "__pycache__", "vendor", ".venv", "venv"]);
 
-function findFiles(dir: string, extensions: Set<string>): string[] {
-  const results: string[] = [];
-  const entries = Bun.spawnSync(["find", dir, "-type", "f"]).stdout.toString().trim().split("\n").filter(Boolean);
+function shouldSkip(relPath: string): boolean {
+  const parts = relPath.split(path.sep);
+  return parts.some((p) => SKIP_DIRS.has(p) || p.startsWith("."));
+}
 
+function findFiles(dir: string, extensions: Set<string>): string[] {
+  const isGit = Bun.spawnSync(["git", "rev-parse", "--git-dir"], { cwd: dir }).exitCode === 0;
+
+  if (isGit) {
+    const extArgs = [...extensions].flatMap((e) => ["-o", "-e", `*${e}`]).slice(1);
+    const result = Bun.spawnSync(
+      ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", ...extArgs],
+      { cwd: dir },
+    );
+    return result.stdout.toString().trim().split("\n").filter(Boolean)
+      .filter((f) => !shouldSkip(f))
+      .map((f) => path.join(dir, f));
+  }
+
+  const excludeArgs = [...SKIP_DIRS].flatMap((d) => ["--exclude", d]);
+  const extArgs = [...extensions].flatMap((e) => ["-e", e.slice(1)]);
+  const result = Bun.spawnSync(["fd", "-t", "f", "--hidden", ...excludeArgs, ...extArgs, ".", dir]);
+  if (result.exitCode === 0) {
+    const files = result.stdout.toString().trim().split("\n").filter(Boolean);
+    return files.filter((f) => !shouldSkip(path.relative(dir, f)));
+  }
+
+  const entries = Bun.spawnSync(["find", dir, "-type", "f"]).stdout.toString().trim().split("\n").filter(Boolean);
+  const results: string[] = [];
   for (const entry of entries) {
     const rel = path.relative(dir, entry);
-    const parts = rel.split(path.sep);
-    if (parts.some((p) => SKIP_DIRS.has(p) || p.startsWith("."))) continue;
+    if (shouldSkip(rel)) continue;
     const ext = path.extname(entry);
     if (extensions.has(ext)) results.push(entry);
   }

@@ -70,9 +70,27 @@ export function computeChangeRipple(
     callers.push(edge.caller);
   }
 
+  const connectedEntities = new Set<string>();
+  for (const edge of callGraph) {
+    connectedEntities.add(edge.caller);
+    connectedEntities.add(edge.callee);
+  }
+
+  const coupledFiles = new Set<string>();
+  for (const c of temporalCoupling) {
+    if (c.confidence >= 0.3) {
+      coupledFiles.add(c.fileA);
+      coupledFiles.add(c.fileB);
+    }
+  }
+
+  const relevantEntities = entities.filter(e =>
+    connectedEntities.has(e.id) || coupledFiles.has(e.filePath)
+  );
+
   const couplingByFile = buildCouplingIndex(temporalCoupling);
 
-  return entities.map(entity => {
+  return relevantEntities.map(entity => {
     const staticDeps = getStaticDeps(entity.id, calleeIndex, callerIndex, entityById);
     const temporalDeps = getTemporalDeps(entity.filePath, couplingByFile, staticDeps);
     const implicitCouplings = temporalDeps
@@ -131,6 +149,9 @@ interface StaticDeps {
   fileSet: Set<string>;
 }
 
+const MAX_BFS = 200;
+const MAX_DEPTH = 3;
+
 function getStaticDeps(
   entityId: string,
   calleeIndex: Map<string, string[]>,
@@ -142,12 +163,15 @@ function getStaticDeps(
 
   const files = new Set<string>();
   const seen = new Set<string>();
-  const queue = [entityId];
+  const queue: Array<[string, number]> = [[entityId, 0]];
 
   while (queue.length > 0) {
-    const current = queue.pop()!;
+    if (seen.size >= MAX_BFS) break;
+    const [current, depth] = queue.pop()!;
     if (seen.has(current)) continue;
     seen.add(current);
+
+    if (depth >= MAX_DEPTH) continue;
 
     const callees = calleeIndex.get(current) ?? [];
     const callers = callerIndex.get(current) ?? [];
@@ -157,7 +181,7 @@ function getStaticDeps(
       if (depEntity && depEntity.filePath !== entity.filePath) {
         files.add(depEntity.filePath);
       }
-      if (!seen.has(dep)) queue.push(dep);
+      if (!seen.has(dep)) queue.push([dep, depth + 1]);
     }
   }
 

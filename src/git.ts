@@ -122,12 +122,17 @@ export function markStaticDependencies(
   callGraph: Array<{ caller: string; callee: string }>,
   entities: Array<{ id: string; filePath: string }>,
 ): TemporalCoupling[] {
+  const idToFile = new Map<string, string>();
+  for (const e of entities) {
+    idToFile.set(e.id, e.filePath);
+  }
+
   const fileImports = new Set<string>();
   for (const edge of callGraph) {
-    const callerEntity = entities.find((e) => e.id === edge.caller);
-    const calleeEntity = entities.find((e) => e.id === edge.callee);
-    if (callerEntity && calleeEntity && callerEntity.filePath !== calleeEntity.filePath) {
-      const key = [callerEntity.filePath, calleeEntity.filePath].sort().join("|||");
+    const callerFile = idToFile.get(edge.caller);
+    const calleeFile = idToFile.get(edge.callee);
+    if (callerFile && calleeFile && callerFile !== calleeFile) {
+      const key = [callerFile, calleeFile].sort().join("|||");
       fileImports.add(key);
     }
   }

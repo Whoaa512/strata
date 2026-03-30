@@ -1,9 +1,6 @@
 import type { CallEdge, BlastRadius } from "./schema";
 
-export function computeBlastRadius(
-  entityId: string,
-  callGraph: CallEdge[],
-): BlastRadius {
+function buildCallerIndex(callGraph: CallEdge[]): Map<string, string[]> {
   const callerIndex = new Map<string, string[]>();
   for (const edge of callGraph) {
     let callers = callerIndex.get(edge.callee);
@@ -13,12 +10,28 @@ export function computeBlastRadius(
     }
     callers.push(edge.caller);
   }
+  return callerIndex;
+}
+
+const MAX_TRANSITIVE = 500;
+
+export function computeBlastRadius(
+  entityId: string,
+  callGraph: CallEdge[],
+  prebuiltIndex?: Map<string, string[]>,
+): BlastRadius {
+  const callerIndex = prebuiltIndex ?? buildCallerIndex(callGraph);
 
   const directCallers = callerIndex.get(entityId) ?? [];
+  if (directCallers.length === 0) {
+    return { entityId, directCallers: [], transitiveCallers: [], radius: 0 };
+  }
+
   const transitiveCallers = new Set<string>();
   const queue = [...directCallers];
 
   while (queue.length > 0) {
+    if (transitiveCallers.size >= MAX_TRANSITIVE) break;
     const current = queue.pop()!;
     if (transitiveCallers.has(current) || current === entityId) continue;
     transitiveCallers.add(current);
@@ -38,8 +51,12 @@ export function computeAllBlastRadii(
   entityIds: string[],
   callGraph: CallEdge[],
 ): BlastRadius[] {
+  const callerIndex = buildCallerIndex(callGraph);
+  const hasCallers = new Set(callerIndex.keys());
+
   return entityIds
-    .map((id) => computeBlastRadius(id, callGraph))
+    .filter((id) => hasCallers.has(id))
+    .map((id) => computeBlastRadius(id, callGraph, callerIndex))
     .filter((br) => br.radius > 0)
     .sort((a, b) => b.radius - a.radius);
 }
