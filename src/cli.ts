@@ -2,7 +2,7 @@
 import { analyze, writeSvFile } from "./analyze";
 import { renderReport } from "./render";
 import { renderBrief, renderFileBrief } from "./brief";
-import { getDiffFiles, analyzeDiff } from "./diff";
+import { getDiffFiles, getDiffHunks, analyzeDiff } from "./diff";
 import { renderDiffAnalysis } from "./diff-render";
 import path from "path";
 
@@ -67,7 +67,8 @@ if (command === "diff") {
     process.exit(0);
   }
 
-  const analysis = analyzeDiff(doc, diffFiles);
+  const hunks = getDiffHunks(rootDir, diffSpec);
+  const analysis = analyzeDiff(doc, diffFiles, hunks);
   console.log(renderDiffAnalysis(analysis, diffSpec));
   process.exit(0);
 }
