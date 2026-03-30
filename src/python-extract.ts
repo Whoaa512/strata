@@ -43,11 +43,21 @@ function paramCount(funcNode: SyntaxNode): number {
   return count;
 }
 
+function conditionHasBooleanOp(ifNode: SyntaxNode): boolean {
+  for (const child of ifNode.namedChildren) {
+    if (child.type === "boolean_operator") return true;
+    if (child.type === "block" || child.type === "elif_clause" || child.type === "else_clause") break;
+  }
+  return false;
+}
+
 function calcCyclomatic(bodyNode: SyntaxNode): number {
   let complexity = 1;
   function walk(node: SyntaxNode) {
     switch (node.type) {
       case "if_statement":
+        if (!conditionHasBooleanOp(node)) complexity++;
+        break;
       case "elif_clause":
       case "for_statement":
       case "while_statement":
