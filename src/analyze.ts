@@ -3,6 +3,7 @@ import fs from "fs";
 import type { StrataDoc } from "./schema";
 import { StrataDocSchema } from "./schema";
 import { createProgram, extract } from "./extract";
+import { extractAll } from "./multi-extract";
 import { getChurn, getTemporalCoupling, markStaticDependencies } from "./git";
 import { computeHotspots } from "./hotspot";
 import { computeAllBlastRadii } from "./blast";
@@ -11,8 +12,7 @@ import { computeAgentRisk } from "./risk";
 
 export function analyze(rootDir: string): StrataDoc {
   const resolvedRoot = path.resolve(rootDir);
-  const program = createProgram(resolvedRoot);
-  const { entities, callGraph, errors } = extract(program, resolvedRoot);
+  const { entities, callGraph, errors } = extractAll(resolvedRoot);
 
   const churn = getChurn(resolvedRoot);
   let temporalCoupling = getTemporalCoupling(resolvedRoot);
