@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeDiff, buildCallerCountIndex, hubDampeningFactor, type DiffFile } from "../src/diff";
-import type { StrataDoc } from "../src/schema";
+import { analyzeDiff, buildCallerCountIndex, hubDampeningFactor, parseDiffHunks, resolveChangedEntities, type DiffFile, type DiffHunk } from "../src/diff";
+import type { Entity, StrataDoc } from "../src/schema";
 
 function makeDoc(overrides: Partial<StrataDoc> = {}): StrataDoc {
   return {
@@ -214,5 +214,325 @@ describe("hub function dampening in analyzeDiff", () => {
     for (const missed of result.missedFiles) {
       expect(missed.confidence).toBeLessThan(0.25);
     }
+  });
+});
+
+function makeEntity(id: string, filePath: string, startLine: number, endLine: number): Entity {
+  return {
+    id, name: id.split(":")[1], kind: "function", filePath, startLine, endLine,
+    metrics: { cyclomatic: 1, cognitive: 1, loc: endLine - startLine + 1, maxNestingDepth: 0, parameterCount: 1 },
+  };
+}
+
+function makeMinimalDoc(overrides: Partial<StrataDoc> = {}): StrataDoc {
+  return {
+    version: "0.2.0",
+    analyzedAt: new Date().toISOString(),
+    rootDir: "/tmp/test",
+    entities: [],
+    callGraph: [],
+    churn: [],
+    temporalCoupling: [],
+    hotspots: [],
+    blastRadius: [],
+    changeRipple: [],
+    agentRisk: [],
+    errors: [],
+    ...overrides,
+  };
+}
+
+describe("parseDiffHunks", () => {
+  test("parses single hunk from unified diff output", () => {
+    const diffOutput = [
+      "diff --git a/src/foo.ts b/src/foo.ts",
+      "index abc1234..def5678 100644",
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -10,3 +10,5 @@ function something",
+      "+added line",
+      "+another line",
+    ].join("\n");
+
+    const hunks = parseDiffHunks(diffOutput);
+    expect(hunks).toHaveLength(1);
+    expect(hunks[0].filePath).toBe("src/foo.ts");
+    expect(hunks[0].startLine).toBe(10);
+    expect(hunks[0].lineCount).toBe(5);
+  });
+
+  test("parses multiple hunks in same file", () => {
+    const diffOutput = [
+      "diff --git a/src/foo.ts b/src/foo.ts",
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -10,3 +10,5 @@ function first",
+      "+line",
+      "@@ -50,2 +52,8 @@ function second",
+      "+line",
+    ].join("\n");
+
+    const hunks = parseDiffHunks(diffOutput);
+    expect(hunks).toHaveLength(2);
+    expect(hunks[0].startLine).toBe(10);
+    expect(hunks[0].lineCount).toBe(5);
+    expect(hunks[1].startLine).toBe(52);
+    expect(hunks[1].lineCount).toBe(8);
+  });
+
+  test("parses hunks across multiple files", () => {
+    const diffOutput = [
+      "diff --git a/src/foo.ts b/src/foo.ts",
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -10,3 +10,5 @@ function first",
+      "+line",
+      "diff --git a/src/bar.ts b/src/bar.ts",
+      "--- a/src/bar.ts",
+      "+++ b/src/bar.ts",
+      "@@ -1,2 +1,4 @@ function bar",
+      "+line",
+    ].join("\n");
+
+    const hunks = parseDiffHunks(diffOutput);
+    expect(hunks).toHaveLength(2);
+    expect(hunks[0].filePath).toBe("src/foo.ts");
+    expect(hunks[1].filePath).toBe("src/bar.ts");
+  });
+
+  test("handles single-line hunk (no count)", () => {
+    const diffOutput = [
+      "diff --git a/src/foo.ts b/src/foo.ts",
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -218 +218,8 @@ function formatEditResult",
+      "+line",
+    ].join("\n");
+
+    const hunks = parseDiffHunks(diffOutput);
+    expect(hunks).toHaveLength(1);
+    expect(hunks[0].startLine).toBe(218);
+    expect(hunks[0].lineCount).toBe(8);
+  });
+
+  test("handles pure addition hunk (+start,count with -start,0)", () => {
+    const diffOutput = [
+      "diff --git a/src/foo.ts b/src/foo.ts",
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -2440,0 +2441,7 @@ export class InteractiveMode",
+      "+line",
+    ].join("\n");
+
+    const hunks = parseDiffHunks(diffOutput);
+    expect(hunks).toHaveLength(1);
+    expect(hunks[0].startLine).toBe(2441);
+    expect(hunks[0].lineCount).toBe(7);
+  });
+
+  test("empty diff output returns empty array", () => {
+    expect(parseDiffHunks("")).toEqual([]);
+  });
+});
+
+describe("resolveChangedEntities", () => {
+  const entities: Entity[] = [
+    makeEntity("f.ts:alpha:1", "f.ts", 10, 20),
+    makeEntity("f.ts:beta:1", "f.ts", 30, 50),
+    makeEntity("f.ts:gamma:1", "f.ts", 60, 80),
+    makeEntity("g.ts:delta:1", "g.ts", 1, 40),
+  ];
+
+  test("includes entity whose range overlaps a hunk", () => {
+    const hunks: DiffHunk[] = [{ filePath: "f.ts", startLine: 15, lineCount: 3 }];
+    const diffFiles: DiffFile[] = [{ filePath: "f.ts", status: "modified" }];
+    const result = resolveChangedEntities(entities, hunks, diffFiles);
+    const ids = result.map(e => e.id);
+    expect(ids).toContain("f.ts:alpha:1");
+  });
+
+  test("excludes entity with no overlapping hunk", () => {
+    const hunks: DiffHunk[] = [{ filePath: "f.ts", startLine: 55, lineCount: 1 }];
+    const diffFiles: DiffFile[] = [{ filePath: "f.ts", status: "modified" }];
+    const result = resolveChangedEntities(entities, hunks, diffFiles);
+    const ids = result.map(e => e.id);
+    expect(ids).not.toContain("f.ts:alpha:1");
+    expect(ids).not.toContain("f.ts:beta:1");
+  });
+
+  test("includes all entities in added files regardless of hunks", () => {
+    const hunks: DiffHunk[] = [];
+    const diffFiles: DiffFile[] = [{ filePath: "g.ts", status: "added" }];
+    const result = resolveChangedEntities(entities, hunks, diffFiles);
+    const ids = result.map(e => e.id);
+    expect(ids).toContain("g.ts:delta:1");
+  });
+
+  test("only overlapping entity returned when multiple in same file", () => {
+    const hunks: DiffHunk[] = [{ filePath: "f.ts", startLine: 35, lineCount: 5 }];
+    const diffFiles: DiffFile[] = [{ filePath: "f.ts", status: "modified" }];
+    const result = resolveChangedEntities(entities, hunks, diffFiles);
+    const ids = result.map(e => e.id);
+    expect(ids).toContain("f.ts:beta:1");
+    expect(ids).not.toContain("f.ts:alpha:1");
+    expect(ids).not.toContain("f.ts:gamma:1");
+  });
+
+  test("hunk at entity boundary (start line) counts as overlap", () => {
+    const hunks: DiffHunk[] = [{ filePath: "f.ts", startLine: 10, lineCount: 1 }];
+    const diffFiles: DiffFile[] = [{ filePath: "f.ts", status: "modified" }];
+    const result = resolveChangedEntities(entities, hunks, diffFiles);
+    const ids = result.map(e => e.id);
+    expect(ids).toContain("f.ts:alpha:1");
+  });
+
+  test("hunk at entity boundary (end line) counts as overlap", () => {
+    const hunks: DiffHunk[] = [{ filePath: "f.ts", startLine: 20, lineCount: 1 }];
+    const diffFiles: DiffFile[] = [{ filePath: "f.ts", status: "modified" }];
+    const result = resolveChangedEntities(entities, hunks, diffFiles);
+    const ids = result.map(e => e.id);
+    expect(ids).toContain("f.ts:alpha:1");
+  });
+});
+
+describe("hunk-scoped diff analysis", () => {
+  test("only callers of hunk-overlapping entities appear as affected", () => {
+    const entities: Entity[] = [
+      makeEntity("big.ts:fnTop:1", "big.ts", 1, 20),
+      makeEntity("big.ts:fnMid:1", "big.ts", 30, 50),
+      makeEntity("big.ts:fnBot:1", "big.ts", 60, 80),
+      makeEntity("callerTop.ts:usesTop:1", "callerTop.ts", 1, 10),
+      makeEntity("callerMid.ts:usesMid:1", "callerMid.ts", 1, 10),
+      makeEntity("callerBot.ts:usesBot:1", "callerBot.ts", 1, 10),
+    ];
+
+    const doc = makeMinimalDoc({
+      entities,
+      callGraph: [
+        { caller: "callerTop.ts:usesTop:1", callee: "big.ts:fnTop:1" },
+        { caller: "callerMid.ts:usesMid:1", callee: "big.ts:fnMid:1" },
+        { caller: "callerBot.ts:usesBot:1", callee: "big.ts:fnBot:1" },
+      ],
+      blastRadius: [
+        { entityId: "big.ts:fnTop:1", directCallers: ["callerTop.ts:usesTop:1"], transitiveCallers: ["callerTop.ts:usesTop:1"], radius: 1 },
+        { entityId: "big.ts:fnMid:1", directCallers: ["callerMid.ts:usesMid:1"], transitiveCallers: ["callerMid.ts:usesMid:1"], radius: 1 },
+        { entityId: "big.ts:fnBot:1", directCallers: ["callerBot.ts:usesBot:1"], transitiveCallers: ["callerBot.ts:usesBot:1"], radius: 1 },
+      ],
+    });
+
+    const diffFiles: DiffFile[] = [{ filePath: "big.ts", status: "modified" }];
+    const hunks: DiffHunk[] = [{ filePath: "big.ts", startLine: 35, lineCount: 10 }];
+
+    const result = analyzeDiff(doc, diffFiles, hunks);
+
+    const callerFiles = result.affectedCallers.map(c => c.filePath);
+    expect(callerFiles).toContain("callerMid.ts");
+    expect(callerFiles).not.toContain("callerTop.ts");
+    expect(callerFiles).not.toContain("callerBot.ts");
+  });
+
+  test("without hunks, all entities in changed files are considered (backward compat)", () => {
+    const entities: Entity[] = [
+      makeEntity("big.ts:fnTop:1", "big.ts", 1, 20),
+      makeEntity("big.ts:fnMid:1", "big.ts", 30, 50),
+      makeEntity("callerTop.ts:usesTop:1", "callerTop.ts", 1, 10),
+      makeEntity("callerMid.ts:usesMid:1", "callerMid.ts", 1, 10),
+    ];
+
+    const doc = makeMinimalDoc({
+      entities,
+      callGraph: [
+        { caller: "callerTop.ts:usesTop:1", callee: "big.ts:fnTop:1" },
+        { caller: "callerMid.ts:usesMid:1", callee: "big.ts:fnMid:1" },
+      ],
+      blastRadius: [
+        { entityId: "big.ts:fnTop:1", directCallers: ["callerTop.ts:usesTop:1"], transitiveCallers: ["callerTop.ts:usesTop:1"], radius: 1 },
+        { entityId: "big.ts:fnMid:1", directCallers: ["callerMid.ts:usesMid:1"], transitiveCallers: ["callerMid.ts:usesMid:1"], radius: 1 },
+      ],
+    });
+
+    const diffFiles: DiffFile[] = [{ filePath: "big.ts", status: "modified" }];
+    const result = analyzeDiff(doc, diffFiles);
+
+    const callerFiles = result.affectedCallers.map(c => c.filePath);
+    expect(callerFiles).toContain("callerTop.ts");
+    expect(callerFiles).toContain("callerMid.ts");
+  });
+
+  test("hunk-scoped analysis narrows changedEntities in result", () => {
+    const entities: Entity[] = [
+      makeEntity("big.ts:fnTop:1", "big.ts", 1, 20),
+      makeEntity("big.ts:fnMid:1", "big.ts", 30, 50),
+      makeEntity("big.ts:fnBot:1", "big.ts", 60, 80),
+    ];
+
+    const doc = makeMinimalDoc({ entities });
+    const diffFiles: DiffFile[] = [{ filePath: "big.ts", status: "modified" }];
+    const hunks: DiffHunk[] = [{ filePath: "big.ts", startLine: 35, lineCount: 5 }];
+
+    const result = analyzeDiff(doc, diffFiles, hunks);
+
+    const changedIds = result.changedEntities.map(e => e.id);
+    expect(changedIds).toContain("big.ts:fnMid:1");
+    expect(changedIds).not.toContain("big.ts:fnTop:1");
+    expect(changedIds).not.toContain("big.ts:fnBot:1");
+  });
+});
+
+describe("cross-package dampening in diff", () => {
+  test("missed file in different package gets lower confidence than same package", () => {
+    const entities: Entity[] = [
+      makeEntity("packages/a/src/changed.ts:fn:1", "packages/a/src/changed.ts", 1, 20),
+      makeEntity("packages/a/src/samePackage.ts:helper:1", "packages/a/src/samePackage.ts", 1, 20),
+      makeEntity("packages/b/src/crossPackage.ts:other:1", "packages/b/src/crossPackage.ts", 1, 20),
+    ];
+
+    const doc = makeMinimalDoc({
+      rootDir: "/tmp/pkg-test",
+      entities,
+      callGraph: [
+        { caller: "packages/a/src/changed.ts:fn:1", callee: "packages/a/src/samePackage.ts:helper:1" },
+        { caller: "packages/a/src/changed.ts:fn:1", callee: "packages/b/src/crossPackage.ts:other:1" },
+      ],
+      temporalCoupling: [
+        { fileA: "packages/a/src/changed.ts", fileB: "packages/a/src/samePackage.ts", cochangeCount: 5, confidence: 0.6, hasStaticDependency: true },
+        { fileA: "packages/a/src/changed.ts", fileB: "packages/b/src/crossPackage.ts", cochangeCount: 5, confidence: 0.6, hasStaticDependency: true },
+      ],
+    });
+
+    const diffFiles: DiffFile[] = [{ filePath: "packages/a/src/changed.ts", status: "modified" }];
+    const result = analyzeDiff(doc, diffFiles);
+
+    const samePkg = result.missedFiles.find(m => m.filePath === "packages/a/src/samePackage.ts");
+    const crossPkg = result.missedFiles.find(m => m.filePath === "packages/b/src/crossPackage.ts");
+
+    expect(samePkg).toBeDefined();
+    expect(crossPkg).toBeDefined();
+    expect(crossPkg!.confidence).toBeLessThan(samePkg!.confidence);
+  });
+
+  test("cross-package dampening applies ~0.5x multiplier", () => {
+    const entities: Entity[] = [
+      makeEntity("packages/a/src/changed.ts:fn:1", "packages/a/src/changed.ts", 1, 20),
+      makeEntity("packages/b/src/target.ts:other:1", "packages/b/src/target.ts", 1, 20),
+    ];
+
+    const doc = makeMinimalDoc({
+      rootDir: "/tmp/pkg-test",
+      entities,
+      callGraph: [
+        { caller: "packages/a/src/changed.ts:fn:1", callee: "packages/b/src/target.ts:other:1" },
+      ],
+      temporalCoupling: [
+        { fileA: "packages/a/src/changed.ts", fileB: "packages/b/src/target.ts", cochangeCount: 8, confidence: 0.7, hasStaticDependency: true },
+      ],
+    });
+
+    const diffFiles: DiffFile[] = [{ filePath: "packages/a/src/changed.ts", status: "modified" }];
+    const result = analyzeDiff(doc, diffFiles);
+
+    const crossPkg = result.missedFiles.find(m => m.filePath === "packages/b/src/target.ts");
+    expect(crossPkg).toBeDefined();
+    expect(crossPkg!.confidence).toBeLessThanOrEqual(0.5);
   });
 });
