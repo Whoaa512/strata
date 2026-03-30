@@ -19,12 +19,5 @@
   },
   "devDependencies": {
     "@types/bun": "^1.2.6"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "tree-sitter",
-      "tree-sitter-python",
-      "tree-sitter-go"
-    ]
   }
 }
