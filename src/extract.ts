@@ -67,6 +67,7 @@ export function createProgram(rootDir: string, filePatterns?: string[]): ts.Prog
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     allowJs: true,
     noEmit: true,
+    noResolve: true,
   });
 }
 

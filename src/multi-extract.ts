@@ -5,7 +5,7 @@ import { GoExtractor } from "./go-extract";
 import type { ExtractionResult } from "./extract";
 import type { LanguageExtractor } from "./extractor";
 
-const SKIP_DIRS = new Set(["node_modules", "dist", ".git", "__pycache__", "vendor", ".venv", "venv"]);
+const SKIP_DIRS = new Set(["node_modules", "dist", ".git", "__pycache__", "vendor", ".venv", "venv", "bazel-bin", "bazel-out", "bazel-testlogs", "bazel-genfiles", ".bazel"]);
 
 const TS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const PY_EXTS = new Set([".py"]);
@@ -13,7 +13,9 @@ const GO_EXTS = new Set([".go"]);
 
 function shouldSkip(relPath: string): boolean {
   const parts = relPath.split(path.sep);
-  return parts.some((p) => SKIP_DIRS.has(p) || p.startsWith("."));
+  if (parts.some((p) => SKIP_DIRS.has(p) || p.startsWith("."))) return true;
+  if (relPath.endsWith(".min.js") || relPath.endsWith(".min.css")) return true;
+  return false;
 }
 
 export interface FileMap {
@@ -78,7 +80,7 @@ export function extractAll(rootDir: string): ExtractionResult {
   const fileMap = findAllFiles(resolvedRoot);
 
   if (fileMap.ts.length > 0) {
-    const program = createProgram(resolvedRoot);
+    const program = createProgram(resolvedRoot, fileMap.ts);
     const result = extract(program, resolvedRoot);
     allEntities.push(...result.entities);
     allCallGraph.push(...result.callGraph);
