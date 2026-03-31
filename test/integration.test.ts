@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeAll } from "bun:test";
 import { analyze } from "../src/analyze";
+
+beforeAll(() => {
+  process.env.STRATA_VALIDATE = "1";
+});
 import { StrataDocSchema } from "../src/schema";
 import path from "path";
 
