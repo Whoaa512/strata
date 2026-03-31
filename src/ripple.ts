@@ -50,26 +50,6 @@ export function computeChangeRipple(
 
   const pkgByFile = rootDir ? getPackageBoundaries(entities, rootDir) : null;
 
-  const calleeIndex = new Map<string, string[]>();
-  for (const edge of callGraph) {
-    let callees = calleeIndex.get(edge.caller);
-    if (!callees) {
-      callees = [];
-      calleeIndex.set(edge.caller, callees);
-    }
-    callees.push(edge.callee);
-  }
-
-  const callerIndex = new Map<string, string[]>();
-  for (const edge of callGraph) {
-    let callers = callerIndex.get(edge.callee);
-    if (!callers) {
-      callers = [];
-      callerIndex.set(edge.callee, callers);
-    }
-    callers.push(edge.caller);
-  }
-
   const connectedEntities = new Set<string>();
   for (const edge of callGraph) {
     connectedEntities.add(edge.caller);
@@ -89,10 +69,11 @@ export function computeChangeRipple(
   );
 
   const couplingByFile = buildCouplingIndex(temporalCoupling);
-  const staticDepsCache = new Map<string, StaticDeps>();
+  const fileGraph = buildFileGraph(callGraph, entityById);
+  const fileDepsCache = new Map<string, StaticDeps>();
 
   return relevantEntities.map(entity => {
-    const staticDeps = getStaticDeps(entity.id, calleeIndex, callerIndex, entityById, staticDepsCache);
+    const staticDeps = getFileDeps(entity.filePath, fileGraph, fileDepsCache);
     const temporalDeps = getTemporalDeps(entity.filePath, couplingByFile, staticDeps);
     const implicitCouplings = temporalDeps
       .filter(td => !staticDeps.fileSet.has(td.filePath))
@@ -152,60 +133,63 @@ interface StaticDeps {
   fileSet: Set<string>;
 }
 
-const MAX_BFS = 200;
+const MAX_FILE_BFS = 100;
 const MAX_DEPTH = 3;
 
-function getStaticDeps(
-  entityId: string,
-  calleeIndex: Map<string, string[]>,
-  callerIndex: Map<string, string[]>,
+function buildFileGraph(
+  callGraph: CallEdge[],
   entityById: Map<string, Entity>,
+): Map<string, Set<string>> {
+  const graph = new Map<string, Set<string>>();
+  for (const edge of callGraph) {
+    const callerEntity = entityById.get(edge.caller);
+    const calleeEntity = entityById.get(edge.callee);
+    if (!callerEntity || !calleeEntity) continue;
+    const a = callerEntity.filePath;
+    const b = calleeEntity.filePath;
+    if (a === b) continue;
+
+    let aNeighbors = graph.get(a);
+    if (!aNeighbors) { aNeighbors = new Set(); graph.set(a, aNeighbors); }
+    aNeighbors.add(b);
+
+    let bNeighbors = graph.get(b);
+    if (!bNeighbors) { bNeighbors = new Set(); graph.set(b, bNeighbors); }
+    bNeighbors.add(a);
+  }
+  return graph;
+}
+
+function getFileDeps(
+  filePath: string,
+  fileGraph: Map<string, Set<string>>,
   cache: Map<string, StaticDeps>,
 ): StaticDeps {
-  const cached = cache.get(entityId);
+  const cached = cache.get(filePath);
   if (cached) return cached;
-
-  const entity = entityById.get(entityId);
-  if (!entity) {
-    const empty = { files: [], fileSet: new Set<string>() };
-    cache.set(entityId, empty);
-    return empty;
-  }
 
   const files = new Set<string>();
   const seen = new Set<string>();
-  const queue: Array<[string, number]> = [[entityId, 0]];
+  const queue: Array<[string, number]> = [[filePath, 0]];
 
   while (queue.length > 0) {
-    if (seen.size >= MAX_BFS) break;
+    if (seen.size >= MAX_FILE_BFS) break;
     const [current, depth] = queue.pop()!;
     if (seen.has(current)) continue;
     seen.add(current);
 
+    if (current !== filePath) files.add(current);
     if (depth >= MAX_DEPTH) continue;
 
-    const callees = calleeIndex.get(current) ?? [];
-    const callers = callerIndex.get(current) ?? [];
-
-    for (const dep of callees) {
-      const depEntity = entityById.get(dep);
-      if (depEntity && depEntity.filePath !== entity.filePath) {
-        files.add(depEntity.filePath);
-      }
-      if (!seen.has(dep)) queue.push([dep, depth + 1]);
-    }
-
-    for (const dep of callers) {
-      const depEntity = entityById.get(dep);
-      if (depEntity && depEntity.filePath !== entity.filePath) {
-        files.add(depEntity.filePath);
-      }
-      if (!seen.has(dep)) queue.push([dep, depth + 1]);
+    const neighbors = fileGraph.get(current);
+    if (!neighbors) continue;
+    for (const neighbor of neighbors) {
+      if (!seen.has(neighbor)) queue.push([neighbor, depth + 1]);
     }
   }
 
   const result = { files: Array.from(files), fileSet: files };
-  cache.set(entityId, result);
+  cache.set(filePath, result);
   return result;
 }
 

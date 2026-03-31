@@ -7,46 +7,67 @@ import type { LanguageExtractor } from "./extractor";
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", "__pycache__", "vendor", ".venv", "venv"]);
 
+const TS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx"]);
+const PY_EXTS = new Set([".py"]);
+const GO_EXTS = new Set([".go"]);
+
 function shouldSkip(relPath: string): boolean {
   const parts = relPath.split(path.sep);
   return parts.some((p) => SKIP_DIRS.has(p) || p.startsWith("."));
 }
 
-function findFiles(dir: string, extensions: Set<string>): string[] {
+export interface FileMap {
+  ts: string[];
+  python: string[];
+  go: string[];
+}
+
+export function findAllFiles(dir: string): FileMap {
+  const result: FileMap = { ts: [], python: [], go: [] };
+  const allExts = [...TS_EXTS, ...PY_EXTS, ...GO_EXTS];
+
   const isGit = Bun.spawnSync(["git", "rev-parse", "--git-dir"], { cwd: dir }).exitCode === 0;
+  let files: string[];
 
   if (isGit) {
-    const extArgs = [...extensions].flatMap((e) => ["-o", "-e", `*${e}`]).slice(1);
-    const result = Bun.spawnSync(
+    const extArgs = allExts.flatMap((e) => ["-o", "-e", `*${e}`]).slice(1);
+    const proc = Bun.spawnSync(
       ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", ...extArgs],
       { cwd: dir },
     );
-    return result.stdout.toString().trim().split("\n").filter(Boolean)
+    files = proc.stdout.toString().trim().split("\n").filter(Boolean)
       .filter((f) => !shouldSkip(f))
       .map((f) => path.join(dir, f));
+  } else {
+    const excludeArgs = [...SKIP_DIRS].flatMap((d) => ["--exclude", d]);
+    const extArgs = allExts.flatMap((e) => ["-e", e.slice(1)]);
+    const proc = Bun.spawnSync(["fd", "-t", "f", "--hidden", ...excludeArgs, ...extArgs, ".", dir]);
+    if (proc.exitCode === 0) {
+      files = proc.stdout.toString().trim().split("\n").filter(Boolean)
+        .filter((f) => !shouldSkip(path.relative(dir, f)));
+    } else {
+      const entries = Bun.spawnSync(["find", dir, "-type", "f"]).stdout.toString().trim().split("\n").filter(Boolean);
+      files = [];
+      for (const entry of entries) {
+        const rel = path.relative(dir, entry);
+        if (shouldSkip(rel)) continue;
+        const ext = path.extname(entry);
+        if (allExts.includes(ext)) files.push(entry);
+      }
+    }
   }
 
-  const excludeArgs = [...SKIP_DIRS].flatMap((d) => ["--exclude", d]);
-  const extArgs = [...extensions].flatMap((e) => ["-e", e.slice(1)]);
-  const result = Bun.spawnSync(["fd", "-t", "f", "--hidden", ...excludeArgs, ...extArgs, ".", dir]);
-  if (result.exitCode === 0) {
-    const files = result.stdout.toString().trim().split("\n").filter(Boolean);
-    return files.filter((f) => !shouldSkip(path.relative(dir, f)));
+  for (const f of files) {
+    const ext = path.extname(f);
+    if (TS_EXTS.has(ext)) result.ts.push(f);
+    else if (PY_EXTS.has(ext)) result.python.push(f);
+    else if (GO_EXTS.has(ext)) result.go.push(f);
   }
 
-  const entries = Bun.spawnSync(["find", dir, "-type", "f"]).stdout.toString().trim().split("\n").filter(Boolean);
-  const results: string[] = [];
-  for (const entry of entries) {
-    const rel = path.relative(dir, entry);
-    if (shouldSkip(rel)) continue;
-    const ext = path.extname(entry);
-    if (extensions.has(ext)) results.push(entry);
-  }
-  return results;
+  return result;
 }
 
 const extractors: LanguageExtractor[] = [new PythonExtractor(), new GoExtractor()];
-const treeSitterExts = new Set(extractors.flatMap((e) => e.extensions));
 
 export function extractAll(rootDir: string): ExtractionResult {
   const resolvedRoot = path.resolve(rootDir);
@@ -54,8 +75,9 @@ export function extractAll(rootDir: string): ExtractionResult {
   const allCallGraph: ExtractionResult["callGraph"] = [];
   const allErrors: ExtractionResult["errors"] = [];
 
-  const tsFiles = findFiles(resolvedRoot, new Set([".ts", ".tsx", ".js", ".jsx"]));
-  if (tsFiles.length > 0) {
+  const fileMap = findAllFiles(resolvedRoot);
+
+  if (fileMap.ts.length > 0) {
     const program = createProgram(resolvedRoot);
     const result = extract(program, resolvedRoot);
     allEntities.push(...result.entities);
@@ -63,8 +85,13 @@ export function extractAll(rootDir: string): ExtractionResult {
     allErrors.push(...result.errors);
   }
 
+  const langFiles: Record<string, string[]> = {
+    ".py": fileMap.python,
+    ".go": fileMap.go,
+  };
+
   for (const ext of extractors) {
-    const files = findFiles(resolvedRoot, new Set(ext.extensions));
+    const files = ext.extensions.flatMap(e => langFiles[e] ?? []);
     if (files.length === 0) continue;
     const result = ext.extract(resolvedRoot, files);
     allEntities.push(...result.entities);
