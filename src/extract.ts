@@ -67,6 +67,25 @@ export function createProgram(rootDir: string, filePatterns?: string[]): ts.Prog
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     allowJs: true,
     noEmit: true,
+  });
+}
+
+export function createProgramFromConfig(configPath: string, rootDir: string): ts.Program {
+  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const parsed = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(configPath),
+  );
+  return ts.createProgram(parsed.fileNames, parsed.options);
+}
+
+export function createLightProgram(files: string[]): ts.Program {
+  return ts.createProgram(files, {
+    target: ts.ScriptTarget.Latest,
+    module: ts.ModuleKind.ESNext,
+    allowJs: true,
+    noEmit: true,
     noResolve: true,
   });
 }
