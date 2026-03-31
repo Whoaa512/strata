@@ -50,16 +50,15 @@ function estimateContextCost(
   ripple: ChangeRipple | undefined,
   locByFile: Map<string, number>,
 ): number {
-  let totalLines = entity.metrics.loc;
-
-  const filesToRead = new Set<string>();
-  if (ripple) {
-    for (const f of ripple.affectedFiles) filesToRead.add(f);
+  if (!ripple || ripple.affectedFiles.length === 0) {
+    return Math.round(entity.metrics.loc * TOKENS_PER_LINE);
   }
-  filesToRead.delete(entity.filePath);
 
-  for (const f of filesToRead) {
-    totalLines += locByFile.get(f) ?? 50;
+  let totalLines = entity.metrics.loc;
+  for (const f of ripple.affectedFiles) {
+    if (f !== entity.filePath) {
+      totalLines += locByFile.get(f) ?? 50;
+    }
   }
 
   return Math.round(totalLines * TOKENS_PER_LINE);
