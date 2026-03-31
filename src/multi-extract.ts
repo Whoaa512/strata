@@ -1,5 +1,6 @@
 import path from "path";
-import { createProgram, extract } from "./extract";
+import fs from "fs";
+import { createProgramFromConfig, createLightProgram, extract } from "./extract";
 import { PythonExtractor } from "./python-extract";
 import { GoExtractor } from "./go-extract";
 import type { ExtractionResult } from "./extract";
@@ -80,11 +81,10 @@ export function extractAll(rootDir: string): ExtractionResult {
   const fileMap = findAllFiles(resolvedRoot);
 
   if (fileMap.ts.length > 0) {
-    const program = createProgram(resolvedRoot, fileMap.ts);
-    const result = extract(program, resolvedRoot);
-    allEntities.push(...result.entities);
-    allCallGraph.push(...result.callGraph);
-    allErrors.push(...result.errors);
+    const tsResult = extractTypeScript(resolvedRoot, fileMap.ts);
+    allEntities.push(...tsResult.entities);
+    allCallGraph.push(...tsResult.callGraph);
+    allErrors.push(...tsResult.errors);
   }
 
   const langFiles: Record<string, string[]> = {
@@ -96,6 +96,67 @@ export function extractAll(rootDir: string): ExtractionResult {
     const files = ext.extensions.flatMap(e => langFiles[e] ?? []);
     if (files.length === 0) continue;
     const result = ext.extract(resolvedRoot, files);
+    allEntities.push(...result.entities);
+    allCallGraph.push(...result.callGraph);
+    allErrors.push(...result.errors);
+  }
+
+  return { entities: allEntities, callGraph: allCallGraph, errors: allErrors };
+}
+
+function findTsConfigs(rootDir: string): string[] {
+  const result = Bun.spawnSync(
+    ["fd", "tsconfig.json", rootDir, "-t", "f", "--exclude", "node_modules", "--exclude", "dist", "--exclude", ".git"],
+  );
+  if (result.exitCode !== 0) return [];
+  return result.stdout.toString().trim().split("\n").filter(Boolean);
+}
+
+function extractTypeScript(rootDir: string, tsFiles: string[]): ExtractionResult {
+  const rootConfig = path.join(rootDir, "tsconfig.json");
+  const hasRootConfig = fs.existsSync(rootConfig);
+
+  if (hasRootConfig) {
+    const program = createProgramFromConfig(rootConfig, rootDir);
+    return extract(program, rootDir);
+  }
+
+  const configs = findTsConfigs(rootDir);
+
+  if (configs.length === 0) {
+    const program = createLightProgram(tsFiles);
+    return extract(program, rootDir);
+  }
+
+  const allEntities: ExtractionResult["entities"] = [];
+  const allCallGraph: ExtractionResult["callGraph"] = [];
+  const allErrors: ExtractionResult["errors"] = [];
+  const processedFiles = new Set<string>();
+
+  for (const configPath of configs) {
+    try {
+      const program = createProgramFromConfig(configPath, rootDir);
+      const result = extract(program, rootDir);
+
+      for (const sf of program.getSourceFiles()) {
+        if (!sf.isDeclarationFile) {
+          const abs = path.resolve(sf.fileName);
+          processedFiles.add(abs);
+        }
+      }
+
+      allEntities.push(...result.entities);
+      allCallGraph.push(...result.callGraph);
+      allErrors.push(...result.errors);
+    } catch (err: any) {
+      allErrors.push({ filePath: configPath, error: err.message ?? String(err) });
+    }
+  }
+
+  const remainingFiles = tsFiles.filter(f => !processedFiles.has(f));
+  if (remainingFiles.length > 0) {
+    const program = createLightProgram(remainingFiles);
+    const result = extract(program, rootDir);
     allEntities.push(...result.entities);
     allCallGraph.push(...result.callGraph);
     allErrors.push(...result.errors);
