@@ -42,5 +42,11 @@ bun src/cli.ts explore .        # web explorer
 - **Confidence scoring in diff**: Call-graph-only connections get lower confidence (25-35%) than temporal coupling (co-change rate). Multi-signal files get boosted.
 - **Output caps**: Max 15 missed files, 10 tests, 10 caller file groups in diff output.
 
+## Worktrees
+All git worktrees go in `./.worktrees/` (gitignored). Never create worktrees outside this directory.
+```bash
+git worktree add .worktrees/<name> <branch>
+```
+
 ## Schema (v0.2.0)
 The `.sv` format includes: entities, callGraph, churn, temporalCoupling, hotspots, blastRadius, changeRipple, agentRisk, errors.
