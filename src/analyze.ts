@@ -53,7 +53,10 @@ export function analyze(rootDir: string): StrataDoc {
     errors,
   };
 
-  return StrataDocSchema.parse(doc);
+  if (process.env.STRATA_VALIDATE) {
+    return StrataDocSchema.parse(doc);
+  }
+  return doc;
 }
 
 export function toCompact(doc: StrataDoc): StrataDocCompact {
