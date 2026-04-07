@@ -384,6 +384,7 @@ function findMissedFromStructuralSiblings(
 ) {
   const allPaths = new Set(doc.entities.map(e => e.filePath).filter(path => !isTestFile(path)));
   const entitiesByFile = groupEntitiesByFile(doc.entities);
+  const routeFileCountByDir = countRouteFilesByDir(allPaths);
 
   for (const changedPath of changedPaths) {
     if (isTestFile(changedPath)) continue;
@@ -391,7 +392,7 @@ function findMissedFromStructuralSiblings(
     for (const candidate of allPaths) {
       if (candidate === changedPath || changedPaths.has(candidate)) continue;
 
-      const sibling = classifyStructuralSibling(changedPath, candidate, entitiesByFile);
+      const sibling = classifyStructuralSibling(changedPath, candidate, entitiesByFile, routeFileCountByDir);
       if (!sibling) continue;
 
       addOrBoostMissedFile(missed, candidate, {
@@ -417,18 +418,19 @@ function classifyStructuralSibling(
   changedPath: string,
   candidate: string,
   entitiesByFile: Map<string, Entity[]>,
+  routeFileCountByDir: Map<string, number>,
 ): { reason: string; confidence: number } | null {
+  if (isPlatformSibling(changedPath, candidate)) {
+    return { reason: "platform sibling", confidence: 0.45 };
+  }
   if (isSameFileInSiblingDirectory(changedPath, candidate)) {
     return { reason: "same filename in sibling directory", confidence: 0.45 };
   }
   if (hasSameEntityNameInSiblingDirectory(changedPath, candidate, entitiesByFile)) {
     return { reason: "same function name in sibling directory", confidence: 0.43 };
   }
-  if (isRouteSibling(changedPath, candidate)) {
+  if (isRouteSibling(changedPath, candidate, routeFileCountByDir)) {
     return { reason: "route sibling", confidence: 0.42 };
-  }
-  if (isPlatformSibling(changedPath, candidate)) {
-    return { reason: "platform sibling", confidence: 0.45 };
   }
   return null;
 }
@@ -464,13 +466,37 @@ function isSiblingDirectory(a: string, b: string): boolean {
   return aDirParts.slice(0, -1).join("/") === bDirParts.slice(0, -1).join("/");
 }
 
-function isRouteSibling(a: string, b: string): boolean {
+const MAX_ROUTE_SIBLINGS_PER_DIR = 6;
+
+function countRouteFilesByDir(paths: Set<string>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const path of paths) {
+    const dir = dirnameOf(path);
+    if (!isRouteDir(dir)) continue;
+    counts.set(dir, (counts.get(dir) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function isRouteSibling(a: string, b: string, routeFileCountByDir: Map<string, number>): boolean {
   const aParts = a.split("/");
   const bParts = b.split("/");
   if (aParts.length !== bParts.length) return false;
-  if (!aParts.includes("routes") && !aParts.includes("route")) return false;
-  if (aParts.slice(0, -1).join("/") !== bParts.slice(0, -1).join("/")) return false;
+
+  const dir = aParts.slice(0, -1).join("/");
+  if (dir !== bParts.slice(0, -1).join("/")) return false;
+  if (!isRouteDir(dir)) return false;
+  if ((routeFileCountByDir.get(dir) ?? 0) > MAX_ROUTE_SIBLINGS_PER_DIR) return false;
+
   return aParts[aParts.length - 1] !== bParts[bParts.length - 1];
+}
+
+function isRouteDir(dir: string): boolean {
+  return /(^|\/)routes?(\/|$)/i.test(dir);
+}
+
+function dirnameOf(path: string): string {
+  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
 }
 
 function isPlatformSibling(a: string, b: string): boolean {
@@ -604,6 +630,7 @@ function buildShapeDelta(
   const changedPaths = new Set(changedFiles.map(f => f.filePath));
   const changedEntityIds = new Set(changedEntities.map(e => e.id));
   const affectedFiles = new Set<string>(changedPaths);
+  const lineCache = new Map<string, string[] | null>();
   const why: string[] = [];
 
   for (const ripple of doc.changeRipple) {
@@ -639,10 +666,10 @@ function buildShapeDelta(
     why.push("test confidence partial: affected ripple tests still need review");
   }
 
-  const invariantHints = findInvariantHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities);
+  const invariantHints = findInvariantHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities, lineCache);
   if (invariantHints.length > 0) why.push(`invariant hint: ${invariantHints[0]}`);
 
-  const runtimeHints = findRuntimeHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities);
+  const runtimeHints = findRuntimeHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities, lineCache);
   if (runtimeHints.length > 0) why.push(`runtime/data hint: ${runtimeHints[0]}`);
 
   const changedRisk = countChangedRisk(doc, changedEntities);
@@ -856,14 +883,19 @@ function higherRisk(
   return order[b] > order[a] ? b : a;
 }
 
-function findRuntimeHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {
+function findRuntimeHints(
+  rootDir: string,
+  filePaths: string[],
+  changedEntities: Entity[],
+  lineCache: Map<string, string[] | null>,
+): string[] {
   const hints: string[] = [];
   for (const filePath of filePaths) {
     addPathRuntimeHint(filePath, hints);
   }
 
   for (const entity of changedEntities) {
-    const lines = readEntityLines(rootDir, entity);
+    const lines = readEntityLines(rootDir, entity, lineCache);
     if (!lines) continue;
     const text = stripQuotedText(lines.join("\n"));
     if (/\b(emit|publish|track[A-Za-z]*|metric[A-Za-z]*|log[A-Za-z]*)\s*\(/i.test(text)) {
@@ -906,7 +938,12 @@ function stripQuotedText(text: string): string {
     .replace(/'(?:\\.|[^'])*'/g, "");
 }
 
-function findInvariantHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {
+function findInvariantHints(
+  rootDir: string,
+  filePaths: string[],
+  changedEntities: Entity[],
+  lineCache: Map<string, string[] | null>,
+): string[] {
   const hints = new Set<string>();
   const domainPattern = /(auth|session|token|permission|billing|payment|rate-?limit|validation|guard)/i;
 
@@ -916,7 +953,7 @@ function findInvariantHints(rootDir: string, filePaths: string[], changedEntitie
   }
 
   for (const entity of changedEntities) {
-    const entityHint = invariantHintForEntity(rootDir, entity);
+    const entityHint = invariantHintForEntity(rootDir, entity, lineCache);
     if (entityHint) hints.add(entityHint);
   }
 
@@ -927,11 +964,15 @@ function isDocsOnlyPath(filePath: string): boolean {
   return /(^|\/)docs?\//i.test(filePath) || /\.(md|mdx|txt|rst)$/i.test(filePath);
 }
 
-function invariantHintForEntity(rootDir: string, entity: Entity): string | null {
+function invariantHintForEntity(
+  rootDir: string,
+  entity: Entity,
+  lineCache: Map<string, string[] | null>,
+): string | null {
   const entityPattern = /(assert|authoriz|enforce|ensure|guard|permission|permit|require|session|token|validat)/i;
   if (entityPattern.test(entity.name)) return `${entity.filePath}:${entity.name}`;
 
-  const lines = readEntityLines(rootDir, entity);
+  const lines = readEntityLines(rootDir, entity, lineCache);
   if (!lines) return null;
 
   return lines.some(hasInvariantText) ? `${entity.filePath}:${entity.name}` : null;
@@ -948,13 +989,24 @@ function hasInvariantText(line: string): boolean {
     || /\b(validate|guard)[A-Za-z0-9_]*\s*\(/i.test(trimmed);
 }
 
-function readEntityLines(rootDir: string, entity: Entity): string[] | null {
-  try {
-    const content = readFileSync(join(rootDir, entity.filePath), "utf-8");
-    return content.split("\n").slice(entity.startLine - 1, entity.endLine);
-  } catch {
-    return null;
+function readEntityLines(
+  rootDir: string,
+  entity: Entity,
+  lineCache: Map<string, string[] | null>,
+): string[] | null {
+  const key = `${rootDir}:${entity.filePath}`;
+  if (!lineCache.has(key)) {
+    try {
+      const content = readFileSync(join(rootDir, entity.filePath), "utf-8");
+      lineCache.set(key, content.split("\n"));
+    } catch {
+      lineCache.set(key, null);
+    }
   }
+
+  const lines = lineCache.get(key);
+  if (!lines) return null;
+  return lines.slice(entity.startLine - 1, entity.endLine);
 }
 
 function buildShapeMovements(input: {

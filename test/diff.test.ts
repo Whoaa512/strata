@@ -418,6 +418,31 @@ describe("analyzeDiff", () => {
     expect(missed?.reason).toContain("route sibling");
   });
 
+  test("finds platform sibling files", () => {
+    const entities: Entity[] = [
+      makeEntity("src/ios/auth.ts:login:1", "src/ios/auth.ts", 1, 10),
+      makeEntity("src/android/auth.ts:login:1", "src/android/auth.ts", 1, 10),
+    ];
+    const siblingDoc = makeMinimalDoc({ entities });
+    const result = analyzeDiff(siblingDoc, [{ filePath: "src/ios/auth.ts", status: "modified" }]);
+
+    const missed = result.missedFiles.find(m => m.filePath === "src/android/auth.ts");
+    expect(missed?.reason).toContain("platform sibling");
+  });
+
+  test("does not flood route sibling hints in large route dirs", () => {
+    const entities: Entity[] = [
+      makeEntity("src/routes/auth.ts:authRoute:1", "src/routes/auth.ts", 1, 10),
+      ...Array.from({ length: 12 }, (_, i) =>
+        makeEntity(`src/routes/route${i}.ts:route${i}:1`, `src/routes/route${i}.ts`, 1, 10)
+      ),
+    ];
+    const routeDoc = makeMinimalDoc({ entities });
+    const result = analyzeDiff(routeDoc, [{ filePath: "src/routes/auth.ts", status: "modified" }]);
+
+    expect(result.missedFiles.filter(m => m.reason.includes("route sibling"))).toHaveLength(0);
+  });
+
   test("does not flag same filename under unrelated roots", () => {
     const entities: Entity[] = [
       makeEntity("src/foo/index.ts:run:1", "src/foo/index.ts", 1, 10),
