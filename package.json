@@ -8,7 +8,8 @@
   "scripts": {
     "test": "bun test",
     "lint": "bunx --bun tsc --noEmit",
-    "strata": "bun src/cli.ts"
+    "strata": "bun src/cli.ts",
+    "video:architecture": "bun scripts/make-architecture-video.ts"
   },
   "dependencies": {
     "tree-sitter-go": "^0.25.0",
