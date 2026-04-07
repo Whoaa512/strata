@@ -2,49 +2,33 @@
 import fs from "fs";
 import path from "path";
 
-interface CliOptions {
-  input: string;
-  outDir: string;
+interface Storyboard {
   title: string;
+  targetDuration?: string;
+  slides: StoryboardSlide[];
+}
+
+interface StoryboardSlide {
+  title: string;
+  duration?: string;
+  narration: string;
+  diagram: string[];
+  highlight: string;
+}
+
+interface CliOptions {
+  storyboard: string;
+  outDir: string;
   voice?: string;
   keep: boolean;
 }
 
-interface Slide {
-  title: string;
-  lines: string[];
-  kind: "text" | "code";
-  narration: string;
-}
-
 const WIDTH = 1920;
 const HEIGHT = 1080;
-const MARGIN_X = 110;
-const MARGIN_TOP = 120;
-const LINE_GAP = 1.22;
-
-function parseArgs(): CliOptions {
-  const args = process.argv.slice(2);
-  const opts: CliOptions = {
-    input: "docs/architecture-flow.md",
-    outDir: "dist/architecture-video",
-    title: "Strata architecture flow",
-    keep: false,
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--input") opts.input = args[++i];
-    else if (arg === "--out-dir") opts.outDir = args[++i];
-    else if (arg === "--title") opts.title = args[++i];
-    else if (arg === "--voice") opts.voice = args[++i];
-    else if (arg === "--keep") opts.keep = true;
-    else if (arg === "--help" || arg === "-h") usage();
-    else throw new Error(`Unknown arg: ${arg}`);
-  }
-
-  return opts;
-}
+const CARD_X = 70;
+const CARD_Y = 70;
+const CARD_W = 1780;
+const CARD_H = 940;
 
 function usage(): never {
   console.log(`
@@ -52,13 +36,33 @@ Usage:
   bun scripts/make-architecture-video.ts [options]
 
 Options:
-  --input <file>       Markdown source. Default: docs/architecture-flow.md
+  --storyboard <file>  Storyboard JSON. Default: docs/architecture-video-storyboard.json
   --out-dir <dir>      Output directory. Default: dist/architecture-video
-  --title <title>      Video title. Default: Strata architecture flow
   --voice <voice>      macOS say voice. Example: Samantha
   --keep               Keep per-slide mp4 segments
 `);
   process.exit(0);
+}
+
+function parseArgs(): CliOptions {
+  const args = process.argv.slice(2);
+  const opts: CliOptions = {
+    storyboard: "docs/architecture-video-storyboard.json",
+    outDir: "dist/architecture-video",
+    keep: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--storyboard") opts.storyboard = args[++i];
+    else if (arg === "--out-dir") opts.outDir = args[++i];
+    else if (arg === "--voice") opts.voice = args[++i];
+    else if (arg === "--keep") opts.keep = true;
+    else if (arg === "--help" || arg === "-h") usage();
+    else throw new Error(`Unknown arg: ${arg}`);
+  }
+
+  return opts;
 }
 
 function run(cmd: string, args: string[], cwd?: string): string {
@@ -71,8 +75,7 @@ function run(cmd: string, args: string[], cwd?: string): string {
 }
 
 function hasCommand(cmd: string): boolean {
-  const proc = Bun.spawnSync(["which", cmd], { stdout: "pipe", stderr: "pipe" });
-  return proc.exitCode === 0;
+  return Bun.spawnSync(["which", cmd], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
 }
 
 function requireTools() {
@@ -84,124 +87,17 @@ function requireTools() {
   if (missing.length > 0) throw new Error(`Missing required tools: ${missing.join(", ")}`);
 }
 
-function splitSections(markdown: string): Array<{ title: string; body: string[] }> {
-  const sections: Array<{ title: string; body: string[] }> = [];
-  let current = { title: "Overview", body: [] as string[] };
-
-  for (const line of markdown.split("\n")) {
-    const h1 = line.match(/^#\s+(.+)/);
-    const h2 = line.match(/^##\s+(.+)/);
-    if (h1) {
-      current.title = h1[1];
-      continue;
-    }
-    if (h2) {
-      if (current.body.some((l) => l.trim())) sections.push(current);
-      current = { title: h2[1], body: [] };
-      continue;
-    }
-    current.body.push(line);
-  }
-
-  if (current.body.some((l) => l.trim())) sections.push(current);
-  return sections;
-}
-
-function stripMarkdown(line: string): string {
-  return line
-    .replace(/```.*$/g, "")
-    .replace(/^[-*]\s+/, "")
-    .replace(/^\d+\.\s+/, "")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/[_*#>]/g, "")
-    .trim();
-}
-
-function wrapText(text: string, maxChars: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (next.length > maxChars && line) {
-      lines.push(line);
-      line = word;
-      continue;
-    }
-    line = next;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-function sectionToSlides(title: string, body: string[]): Slide[] {
-  const slides: Slide[] = [];
-  let inCode = false;
-  let code: string[] = [];
-  let text: string[] = [];
-
-  function flushText() {
-    const clean = text.map(stripMarkdown).filter(Boolean);
-    text = [];
-    if (clean.length === 0) return;
-
-    const lines = clean.flatMap((l) => wrapText(l, 92));
-    for (let i = 0; i < lines.length; i += 18) {
-      const chunk = lines.slice(i, i + 18);
-      slides.push({ title, lines: chunk, kind: "text", narration: narrateText(title, chunk) });
+function loadStoryboard(filePath: string): Storyboard {
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const storyboard = JSON.parse(raw) as Storyboard;
+  if (!storyboard.title) throw new Error("Storyboard missing title");
+  if (!Array.isArray(storyboard.slides) || storyboard.slides.length === 0) throw new Error("Storyboard missing slides");
+  for (const [i, slide] of storyboard.slides.entries()) {
+    if (!slide.title || !slide.narration || !slide.highlight || !Array.isArray(slide.diagram)) {
+      throw new Error(`Storyboard slide ${i + 1} is missing title, narration, highlight, or diagram[]`);
     }
   }
-
-  function flushCode() {
-    const clean = code.filter((l) => l.trim() !== "");
-    code = [];
-    if (clean.length === 0) return;
-
-    for (let i = 0; i < clean.length; i += 36) {
-      const chunk = clean.slice(i, i + 36);
-      slides.push({ title, lines: chunk, kind: "code", narration: narrateCode(title) });
-    }
-  }
-
-  for (const line of body) {
-    if (line.startsWith("```")) {
-      if (inCode) flushCode();
-      else flushText();
-      inCode = !inCode;
-      continue;
-    }
-
-    if (inCode) code.push(line);
-    else text.push(line);
-  }
-
-  flushText();
-  flushCode();
-  return slides;
-}
-
-function narrateText(title: string, lines: string[]): string {
-  const summary = lines.join(" ").replace(/\s+/g, " ").slice(0, 260);
-  if (!summary) return `${title}.`;
-  return `${title}. ${summary}`;
-}
-
-function narrateCode(title: string): string {
-  return `${title}. This diagram shows the architecture flow. Follow the arrows from top to bottom; boxes are components, and labels describe the data moving between them.`;
-}
-
-function makeSlides(markdown: string, videoTitle: string): Slide[] {
-  const sections = splitSections(markdown);
-  const slides: Slide[] = [{
-    title: videoTitle,
-    lines: ["A programmatic walkthrough of how Strata parses code, collects metrics, reads git history, and turns those signals into agent risk."],
-    kind: "text",
-    narration: `${videoTitle}. A programmatic walkthrough of how Strata parses code, collects metrics, reads git history, and turns those signals into agent risk.`,
-  }];
-
-  for (const section of sections) slides.push(...sectionToSlides(section.title, section.body));
-  return slides;
+  return storyboard;
 }
 
 function escapeXml(text: string): string {
@@ -212,45 +108,103 @@ function escapeXml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function fontSizeFor(lines: string[], kind: Slide["kind"]): number {
-  const maxLen = Math.max(1, ...lines.map((l) => l.length));
-  const maxWidth = WIDTH - MARGIN_X * 2;
-  const widthSize = Math.floor(maxWidth / (maxLen * 0.62));
-  const maxHeight = HEIGHT - MARGIN_TOP - 110;
-  const heightSize = Math.floor(maxHeight / (Math.max(1, lines.length) * LINE_GAP));
-  const preferred = kind === "code" ? 22 : 34;
-  const min = kind === "code" ? 12 : 24;
-  return Math.max(min, Math.min(preferred, widthSize, heightSize));
+function wrapText(text: string, maxChars: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+      continue;
+    }
+    line = next;
+  }
+
+  if (line) lines.push(line);
+  return lines;
 }
 
-function slideSvg(slide: Slide, index: number, total: number): string {
-  const fontSize = fontSizeFor(slide.lines, slide.kind);
-  const lineHeight = Math.ceil(fontSize * LINE_GAP);
-  const bodyY = MARGIN_TOP + 50;
-  const fontFamily = slide.kind === "code" ? "Menlo, Consolas, monospace" : "Inter, Helvetica, Arial, sans-serif";
-  const title = escapeXml(slide.title);
+function textBlock(text: string, x: number, y: number, size: number, maxChars: number, fill = "#e5e7eb", weight = "400"): string {
+  return wrapText(text, maxChars).map((line, i) => (
+    `<text x="${x}" y="${y + i * Math.ceil(size * 1.28)}" fill="${fill}" font-size="${size}" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="${weight}">${escapeXml(line)}</text>`
+  )).join("\n");
+}
 
-  const tspans = slide.lines.map((line, i) => {
-    const y = bodyY + i * lineHeight;
-    return `<tspan x="${MARGIN_X}" y="${y}">${escapeXml(line)}</tspan>`;
+function nodeBox(label: string, x: number, y: number, w: number, h: number, fill: string): string {
+  const lines = wrapText(label, Math.max(12, Math.floor(w / 18)));
+  const textY = y + h / 2 - ((lines.length - 1) * 15) + 8;
+  const body = lines.map((line, i) => (
+    `<text x="${x + w / 2}" y="${textY + i * 30}" text-anchor="middle" fill="#f8fafc" font-size="24" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700">${escapeXml(line)}</text>`
+  )).join("\n");
+
+  return `
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="${fill}" stroke="#93c5fd" stroke-width="2"/>
+    ${body}
+  `;
+}
+
+function arrow(x1: number, y1: number, x2: number, y2: number): string {
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#60a5fa" stroke-width="5" marker-end="url(#arrow)" opacity="0.9"/>`;
+}
+
+function renderFlow(items: string[]): string {
+  const colors = ["#2563eb", "#7c3aed", "#0891b2", "#16a34a", "#ca8a04", "#dc2626", "#4f46e5"];
+  if (items.length <= 5) {
+    const w = 260;
+    const h = 130;
+    const gap = (CARD_W - 160 - items.length * w) / Math.max(1, items.length - 1);
+    const y = 420;
+    return items.map((item, i) => {
+      const x = 150 + i * (w + gap);
+      const pieces = [nodeBox(item, x, y, w, h, colors[i % colors.length])];
+      if (i < items.length - 1) pieces.push(arrow(x + w + 12, y + h / 2, x + w + gap - 12, y + h / 2));
+      return pieces.join("\n");
+    }).join("\n");
+  }
+
+  const cols = items.length > 6 ? 4 : 3;
+  const w = 360;
+  const h = 110;
+  const gapX = 50;
+  const gapY = 45;
+  const startX = 180;
+  const startY = 340;
+
+  return items.map((item, i) => {
+    const row = Math.floor(i / cols);
+    const col = i % cols;
+    const x = startX + col * (w + gapX);
+    const y = startY + row * (h + gapY);
+    return nodeBox(item, x, y, w, h, colors[i % colors.length]);
   }).join("\n");
+}
+
+function slideSvg(storyboard: Storyboard, slide: StoryboardSlide, index: number): string {
+  const title = escapeXml(slide.title);
+  const subtitle = `${index + 1} / ${storyboard.slides.length} · ${storyboard.title}`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <defs>
     <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0%" stop-color="#101522"/>
-      <stop offset="100%" stop-color="#1f2937"/>
+      <stop offset="0%" stop-color="#09090b"/>
+      <stop offset="100%" stop-color="#111827"/>
     </linearGradient>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L12,7 L2,12 Z" fill="#60a5fa"/>
+    </marker>
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)"/>
-  <rect x="70" y="70" width="1780" height="940" rx="34" fill="#0b1020" stroke="#334155" stroke-width="3"/>
-  <text x="${MARGIN_X}" y="102" fill="#93c5fd" font-size="34" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700">${title}</text>
-  <line x1="${MARGIN_X}" y1="126" x2="1810" y2="126" stroke="#334155" stroke-width="2"/>
-  <text fill="#e5e7eb" font-size="${fontSize}" font-family="${fontFamily}" xml:space="preserve">
-${tspans}
-  </text>
-  <text x="${MARGIN_X}" y="980" fill="#64748b" font-size="24" font-family="Inter, Helvetica, Arial, sans-serif">${index + 1} / ${total}</text>
+  <rect x="${CARD_X}" y="${CARD_Y}" width="${CARD_W}" height="${CARD_H}" rx="36" fill="#0f172a" stroke="#334155" stroke-width="3"/>
+  <text x="120" y="130" fill="#f8fafc" font-size="56" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="800">${title}</text>
+  <text x="120" y="178" fill="#94a3b8" font-size="24" font-family="Inter, Helvetica, Arial, sans-serif">${escapeXml(subtitle)}</text>
+  ${renderFlow(slide.diagram)}
+  <rect x="120" y="810" width="1680" height="130" rx="28" fill="#172554" stroke="#60a5fa" stroke-width="2"/>
+  <text x="155" y="858" fill="#bfdbfe" font-size="28" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="800">Key point</text>
+  ${textBlock(slide.highlight, 155, 900, 30, 88, "#eff6ff", "700")}
 </svg>
 `;
 }
@@ -305,7 +259,8 @@ async function main() {
   const opts = parseArgs();
   requireTools();
 
-  const inputPath = path.resolve(opts.input);
+  const storyboardPath = path.resolve(opts.storyboard);
+  const storyboard = loadStoryboard(storyboardPath);
   const outDir = path.resolve(opts.outDir);
   const slideDir = path.join(outDir, "slides");
   const audioDir = path.join(outDir, "audio");
@@ -317,28 +272,25 @@ async function main() {
   fs.mkdirSync(audioDir, { recursive: true });
   fs.mkdirSync(segmentDir, { recursive: true });
 
-  const markdown = fs.readFileSync(inputPath, "utf-8");
-  const slides = makeSlides(markdown, opts.title);
   const segmentPaths: string[] = [];
+  console.log(`Generating ${storyboard.slides.length} storyboard slides from ${opts.storyboard}`);
 
-  console.log(`Generating ${slides.length} slides from ${opts.input}`);
-  for (let i = 0; i < slides.length; i++) {
+  for (let i = 0; i < storyboard.slides.length; i++) {
     const id = String(i + 1).padStart(3, "0");
     const svgPath = path.join(slideDir, `${id}.svg`);
     const pngPath = path.join(slideDir, `${id}.png`);
     const audioPath = path.join(audioDir, `${id}.aiff`);
     const segmentPath = path.join(segmentDir, `${id}.mp4`);
 
-    fs.writeFileSync(svgPath, slideSvg(slides[i], i, slides.length));
+    fs.writeFileSync(svgPath, slideSvg(storyboard, storyboard.slides[i], i));
     convertSvgToPng(svgPath, pngPath);
-    sayToAudio(slides[i].narration, audioPath, opts.voice);
+    sayToAudio(storyboard.slides[i].narration, audioPath, opts.voice);
     makeSegment(pngPath, audioPath, segmentPath);
     segmentPaths.push(segmentPath);
-    console.log(`  ${id}/${slides.length}`);
+    console.log(`  ${id}/${storyboard.slides.length}`);
   }
 
   concatSegments(segmentPaths, path.join(outDir, "segments.txt"), outputPath);
-
   if (!opts.keep) fs.rmSync(segmentDir, { recursive: true, force: true });
 
   console.log(`Done: ${outputPath}`);

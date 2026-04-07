@@ -1,0 +1,76 @@
+{
+  "title": "Strata Architecture",
+  "targetDuration": "2:30",
+  "slides": [
+    {
+      "title": "What is Strata?",
+      "duration": "15s",
+      "narration": "Strata is an agent-centric code intelligence tool. It answers one question: where will an AI agent struggle in your codebase? It combines static analysis with git history to produce risk maps, diff reviews, and an interactive explorer.",
+      "diagram": ["Your codebase", "Strata", "Risk brief", "Diff review", "Web explorer"],
+      "highlight": "Agent-centric: built for AI agents, not just humans."
+    },
+    {
+      "title": "The two inputs",
+      "duration": "15s",
+      "narration": "Strata has two inputs: source files and git history. Source files tell it what exists now. Git history tells it what tends to change together. Everything Strata knows comes from those two signals.",
+      "diagram": ["Source files: TS, Python, Go", "Git history: last 500 commits", "Analysis pipeline"],
+      "highlight": "Point it at a directory; analysis starts from code plus git."
+    },
+    {
+      "title": "Step 1: extract entities and calls",
+      "duration": "20s",
+      "narration": "First, Strata finds functions, methods, and classes. For TypeScript, it uses the TypeScript compiler API. For Python and Go, it uses tree-sitter language configs. The output is entities with metrics, plus a call graph of who calls whom.",
+      "diagram": ["Source files", "TS compiler extractor", "Tree-sitter extractors", "Entities", "Call graph"],
+      "highlight": "Add a language in multi-extract.ts with a new extractor."
+    },
+    {
+      "title": "Step 2: mine git signals",
+      "duration": "20s",
+      "narration": "In parallel, Strata mines git history. Churn says how often each file changes. Temporal coupling says which file pairs change together. When files co-change without an import link, that's an implicit coupling; agents are likely to miss it.",
+      "diagram": ["git log", "Churn per file", "Temporal coupling pairs", "Implicit coupling: co-change with no static edge"],
+      "highlight": "Temporal coupling is the strongest signal. Tune it in git.ts."
+    },
+    {
+      "title": "Step 3: derive scores",
+      "duration": "25s",
+      "narration": "Next, Strata combines static analysis and git history into four derived scores. Hotspots are complexity times churn. Blast radius counts transitive callers. Change ripple combines static dependencies, temporal dependencies, and implicit coupling. Agent risk turns those into red, yellow, or green safety ratings.",
+      "diagram": ["Hotspots: complexity × churn", "Blast radius: transitive callers", "Change ripple: static + temporal + implicit", "Agent risk: green, yellow, red"],
+      "highlight": "Tune ripple weights in ripple.ts and risk thresholds in risk.ts."
+    },
+    {
+      "title": "The StrataDoc",
+      "duration": "15s",
+      "narration": "All analysis lands in one document: StrataDoc. It contains entities, call graph, churn, temporal coupling, hotspots, blast radius, change ripple, agent risk, and non-fatal errors. Every output mode reads from this one structure.",
+      "diagram": ["StrataDoc v0.2.0", "entities", "callGraph", "churn", "temporalCoupling", "hotspots", "blastRadius", "changeRipple", "agentRisk", "errors"],
+      "highlight": "Schema lives in schema.ts. Compact writing lives in analyze.ts."
+    },
+    {
+      "title": "Four output modes",
+      "duration": "20s",
+      "narration": "From StrataDoc, the CLI renders four views. Brief gives a terminal risk map. Diff reviews your change and finds files or tests you probably missed. Report writes a fuller terminal report. Explore starts a web visualizer for deep dives.",
+      "diagram": ["StrataDoc", "strata brief", "strata diff", "strata report", "strata explore"],
+      "highlight": "Most day-to-day use starts with brief or diff."
+    },
+    {
+      "title": "Diff review: the killer feature",
+      "duration": "20s",
+      "narration": "The diff command parses changed files and hunks, resolves which entities changed, then cross-references temporal coupling, call graph edges, and ripple data. It outputs likely missed source files and tests, with confidence scores and caps to keep the review readable.",
+      "diagram": ["Your diff", "Changed entities", "Temporal signal", "Call graph signal", "Ripple signal", "Missed files", "Missed tests"],
+      "highlight": "Confidence thresholds and dampening live in diff.ts."
+    },
+    {
+      "title": "Where to change things",
+      "duration": "18s",
+      "narration": "Here's the quick map. Add a language in multi-extract.ts. Change TypeScript parsing in extract.ts. Change Python or Go parsing in their language config files. Change metrics in src slash metrics. Change git behavior in git.ts. Change risk scoring in ripple.ts and risk.ts. Change diff suggestions in diff.ts.",
+      "diagram": ["Add language → multi-extract.ts", "TS parsing → extract.ts", "Python/Go parsing → *-extract.ts", "Metrics → src/metrics", "Git signals → git.ts", "Risk scoring → ripple.ts + risk.ts", "Diff suggestions → diff.ts"],
+      "highlight": "The codebase is intentionally flat: one concern per file."
+    },
+    {
+      "title": "Known limits",
+      "duration": "12s",
+      "narration": "Three limits matter. TypeScript call graphs miss dynamic and reflected calls. Python and Go resolve calls mostly by name, so same-name functions can collide. Temporal coupling depends on git history quality, and large commits are ignored.",
+      "diagram": ["Dynamic calls can be invisible", "Python and Go name collisions", "Git history quality matters"],
+      "highlight": "These are design tradeoffs; know them when interpreting results."
+    }
+  ]
+}
