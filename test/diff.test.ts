@@ -365,6 +365,58 @@ describe("analyzeDiff", () => {
     expect(result.shapeDelta.reviewFocus).toContain("Check sibling/parallel implementations near likely missed files");
   });
 
+  test("finds same function names in sibling directories", () => {
+    const entities: Entity[] = [
+      makeEntity("handlers/rest/auth.ts:handleLogin:1", "handlers/rest/auth.ts", 1, 10),
+      makeEntity("handlers/graphql/authResolver.ts:handleLogin:1", "handlers/graphql/authResolver.ts", 1, 10),
+    ];
+    const siblingDoc = makeMinimalDoc({ entities });
+    const result = analyzeDiff(siblingDoc, [{ filePath: "handlers/rest/auth.ts", status: "modified" }]);
+
+    const missed = result.missedFiles.find(m => m.filePath === "handlers/graphql/authResolver.ts");
+    expect(missed?.reason).toContain("same function name in sibling directory");
+  });
+
+  test("finds sibling route files in same route directory", () => {
+    const entities: Entity[] = [
+      makeEntity("src/routes/auth.ts:authRoute:1", "src/routes/auth.ts", 1, 10),
+      makeEntity("src/routes/oauth.ts:oauthRoute:1", "src/routes/oauth.ts", 1, 10),
+    ];
+    const routeDoc = makeMinimalDoc({ entities });
+    const result = analyzeDiff(routeDoc, [{ filePath: "src/routes/auth.ts", status: "modified" }]);
+
+    const missed = result.missedFiles.find(m => m.filePath === "src/routes/oauth.ts");
+    expect(missed?.reason).toContain("route sibling");
+  });
+
+  test("does not flag same filename under unrelated roots", () => {
+    const entities: Entity[] = [
+      makeEntity("src/foo/index.ts:run:1", "src/foo/index.ts", 1, 10),
+      makeEntity("examples/bar/index.ts:run:1", "examples/bar/index.ts", 1, 10),
+    ];
+    const siblingDoc = makeMinimalDoc({ entities });
+    const result = analyzeDiff(siblingDoc, [{ filePath: "src/foo/index.ts", status: "modified" }]);
+
+    expect(result.missedFiles.map(m => m.filePath)).not.toContain("examples/bar/index.ts");
+  });
+
+  test("boosts structural siblings when temporal coupling agrees", () => {
+    const entities: Entity[] = [
+      makeEntity("src/rest/auth.ts:handler:1", "src/rest/auth.ts", 1, 10),
+      makeEntity("src/graphql/auth.ts:handler:1", "src/graphql/auth.ts", 1, 10),
+    ];
+    const siblingDoc = makeMinimalDoc({
+      entities,
+      temporalCoupling: [
+        { fileA: "src/rest/auth.ts", fileB: "src/graphql/auth.ts", cochangeCount: 5, confidence: 0.5, hasStaticDependency: false },
+      ],
+    });
+    const result = analyzeDiff(siblingDoc, [{ filePath: "src/rest/auth.ts", status: "modified" }]);
+
+    const missed = result.missedFiles.find(m => m.filePath === "src/graphql/auth.ts");
+    expect(missed?.confidence).toBeGreaterThan(0.5);
+  });
+
   test("records invariant hints from changed entity text", () => {
     const tmpDir = `/tmp/strata-shape-invariant-${Date.now()}`;
     const { mkdirSync, rmSync, writeFileSync } = require("fs");

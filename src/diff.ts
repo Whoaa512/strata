@@ -383,20 +383,54 @@ function findMissedFromStructuralSiblings(
   missed: Map<string, MissedFile>,
 ) {
   const allPaths = new Set(doc.entities.map(e => e.filePath).filter(path => !isTestFile(path)));
+  const entitiesByFile = groupEntitiesByFile(doc.entities);
+
   for (const changedPath of changedPaths) {
     if (isTestFile(changedPath)) continue;
 
     for (const candidate of allPaths) {
       if (candidate === changedPath || changedPaths.has(candidate)) continue;
-      if (!isSameFileInSiblingDirectory(changedPath, candidate)) continue;
+
+      const sibling = classifyStructuralSibling(changedPath, candidate, entitiesByFile);
+      if (!sibling) continue;
 
       addOrBoostMissedFile(missed, candidate, {
-        reason: `structural sibling of ${changedPath} (same filename in sibling directory)`,
-        confidence: 0.45,
+        reason: `structural sibling of ${changedPath} (${sibling.reason})`,
+        confidence: structuralSiblingConfidence(changedPath, candidate, sibling.confidence, doc.temporalCoupling),
         source: changedPath,
       });
     }
   }
+}
+
+function groupEntitiesByFile(entities: Entity[]): Map<string, Entity[]> {
+  const byFile = new Map<string, Entity[]>();
+  for (const entity of entities) {
+    const list = byFile.get(entity.filePath) ?? [];
+    list.push(entity);
+    byFile.set(entity.filePath, list);
+  }
+  return byFile;
+}
+
+function classifyStructuralSibling(
+  changedPath: string,
+  candidate: string,
+  entitiesByFile: Map<string, Entity[]>,
+): { reason: string; confidence: number } | null {
+  if (isSameFileInSiblingDirectory(changedPath, candidate)) {
+    return { reason: "same filename in sibling directory", confidence: 0.45 };
+  }
+  if (hasSameEntityNameInSiblingDirectory(changedPath, candidate, entitiesByFile)) {
+    return { reason: "same function name in sibling directory", confidence: 0.43 };
+  }
+  if (isRouteSibling(changedPath, candidate)) {
+    return { reason: "route sibling", confidence: 0.42 };
+  }
+  if (isPlatformSibling(changedPath, candidate)) {
+    return { reason: "platform sibling", confidence: 0.45 };
+  }
+  return null;
 }
 
 function isSameFileInSiblingDirectory(a: string, b: string): boolean {
@@ -406,6 +440,67 @@ function isSameFileInSiblingDirectory(a: string, b: string): boolean {
   if (aParts[aParts.length - 1] !== bParts[bParts.length - 1]) return false;
   if (aParts[aParts.length - 2] === bParts[bParts.length - 2]) return false;
   return aParts.slice(0, -2).join("/") === bParts.slice(0, -2).join("/");
+}
+
+function hasSameEntityNameInSiblingDirectory(
+  changedPath: string,
+  candidate: string,
+  entitiesByFile: Map<string, Entity[]>,
+): boolean {
+  if (!isSiblingDirectory(changedPath, candidate)) return false;
+
+  const changedNames = new Set((entitiesByFile.get(changedPath) ?? []).map(e => e.name));
+  return (entitiesByFile.get(candidate) ?? []).some(e => changedNames.has(e.name));
+}
+
+function isSiblingDirectory(a: string, b: string): boolean {
+  const aParts = a.split("/");
+  const bParts = b.split("/");
+  if (aParts.length < 3 || bParts.length < 3) return false;
+  const aDirParts = aParts.slice(0, -1);
+  const bDirParts = bParts.slice(0, -1);
+  if (aDirParts.length !== bDirParts.length) return false;
+  if (aDirParts[aDirParts.length - 1] === bDirParts[bDirParts.length - 1]) return false;
+  return aDirParts.slice(0, -1).join("/") === bDirParts.slice(0, -1).join("/");
+}
+
+function isRouteSibling(a: string, b: string): boolean {
+  const aParts = a.split("/");
+  const bParts = b.split("/");
+  if (aParts.length !== bParts.length) return false;
+  if (!aParts.includes("routes") && !aParts.includes("route")) return false;
+  if (aParts.slice(0, -1).join("/") !== bParts.slice(0, -1).join("/")) return false;
+  return aParts[aParts.length - 1] !== bParts[bParts.length - 1];
+}
+
+function isPlatformSibling(a: string, b: string): boolean {
+  const platforms = new Set(["ios", "android", "web", "rest", "graphql", "server", "client"]);
+  const aParts = a.split("/");
+  const bParts = b.split("/");
+  if (aParts.length !== bParts.length) return false;
+  if (aParts[aParts.length - 1] !== bParts[bParts.length - 1]) return false;
+
+  let platformDiffs = 0;
+  for (let i = 0; i < aParts.length - 1; i++) {
+    if (aParts[i] === bParts[i]) continue;
+    if (!platforms.has(aParts[i]) || !platforms.has(bParts[i])) return false;
+    platformDiffs += 1;
+  }
+  return platformDiffs === 1;
+}
+
+function structuralSiblingConfidence(
+  changedPath: string,
+  candidate: string,
+  baseConfidence: number,
+  temporalCoupling: TemporalCoupling[],
+): number {
+  const coupling = temporalCoupling.find(tc => (
+    (tc.fileA === changedPath && tc.fileB === candidate) ||
+    (tc.fileA === candidate && tc.fileB === changedPath)
+  ));
+  if (!coupling || coupling.confidence < 0.3) return baseConfidence;
+  return Math.min(0.75, Math.max(baseConfidence, coupling.confidence + 0.1));
 }
 
 function addOrBoostMissedFile(
