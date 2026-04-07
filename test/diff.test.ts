@@ -226,6 +226,35 @@ describe("analyzeDiff", () => {
     }
   });
 
+  test("does not record package boundary crossing within same package", () => {
+    const tmpDir = `/tmp/strata-shape-same-boundary-${Date.now()}`;
+    const { mkdirSync, rmSync, writeFileSync } = require("fs");
+    mkdirSync(`${tmpDir}/packages/a/src`, { recursive: true });
+    writeFileSync(`${tmpDir}/packages/a/package.json`, "{}");
+
+    try {
+      const entities: Entity[] = [
+        makeEntity("packages/a/src/changed.ts:fn:1", "packages/a/src/changed.ts", 1, 10),
+        makeEntity("packages/a/src/affected.ts:fn:1", "packages/a/src/affected.ts", 1, 10),
+      ];
+      const boundaryDoc = makeMinimalDoc({
+        rootDir: tmpDir,
+        entities,
+        temporalCoupling: [
+          { fileA: "packages/a/src/changed.ts", fileB: "packages/a/src/affected.ts", cochangeCount: 4, confidence: 0.8, hasStaticDependency: false },
+        ],
+      });
+
+      const result = analyzeDiff(boundaryDoc, [{ filePath: "packages/a/src/changed.ts", status: "modified" }]);
+
+      expect(result.shapeDelta.changedPackages).toEqual(["packages/a"]);
+      expect(result.shapeDelta.affectedPackages).toEqual(["packages/a"]);
+      expect(result.shapeDelta.boundaryCrossings).toEqual([]);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test("records affected directories and changed risk mix in shape delta", () => {
     const riskDoc = makeDoc({
       agentRisk: [
