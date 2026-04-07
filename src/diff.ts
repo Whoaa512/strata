@@ -24,6 +24,8 @@ export interface ShapeDelta {
   changedFileCount: number;
   affectedFileCount: number;
   attention: "GREEN" | "YELLOW" | "RED";
+  testConfidence: "STRONG" | "WEAK" | "UNKNOWN";
+  boundaryCrossings: string[];
   why: string[];
   likelyMissed: MissedFile[];
   reviewFocus: string[];
@@ -191,6 +193,7 @@ export function analyzeDiff(doc: StrataDoc, diffFiles: DiffFile[], hunks?: DiffH
     cappedMissedFiles,
     cappedMissedTests,
     affectedCallers,
+    pkgByFile,
   );
 
   return {
@@ -419,6 +422,7 @@ function buildShapeDelta(
   missedFiles: MissedFile[],
   missedTests: MissedFile[],
   affectedCallers: DiffAnalysis["affectedCallers"],
+  pkgByFile: Map<string, string> | null,
 ): ShapeDelta {
   const changedPaths = new Set(changedFiles.map(f => f.filePath));
   const changedEntityIds = new Set(changedEntities.map(e => e.id));
@@ -435,10 +439,14 @@ function buildShapeDelta(
   const topRippleDir = findTopRippleDir(changedEntities, doc.changeRipple, affectedFiles.size);
   if (topRippleDir) why.push(`ripple expanded in ${topRippleDir}`);
 
+  const boundaryCrossings = findBoundaryCrossings(changedPaths, affectedFiles, pkgByFile);
+  if (boundaryCrossings.length > 0) why.push(`boundary crossing: ${boundaryCrossings[0]}`);
+
   const implicit = missedFiles.find(m => m.reason.includes("no import") || m.reason.includes("implicit"));
   if (implicit) why.push(`implicit coupling: ${implicit.filePath}`);
 
-  if (hasWeakTestConfidence(changedPaths, missedTests)) {
+  const testConfidence = computeTestConfidence(doc, changedPaths, missedTests);
+  if (testConfidence === "WEAK") {
     why.push("test confidence weak: likely tests not changed for affected area");
   }
 
@@ -457,6 +465,8 @@ function buildShapeDelta(
     changedFileCount: changedFiles.length,
     affectedFileCount: affectedFiles.size,
     attention,
+    testConfidence,
+    boundaryCrossings,
     why: why.slice(0, 5),
     likelyMissed: [...missedFiles, ...missedTests]
       .sort((a, b) => b.confidence - a.confidence)
@@ -487,10 +497,44 @@ function findTopRippleDir(
   return top?.[1] ? top[0] : null;
 }
 
-function hasWeakTestConfidence(changedPaths: Set<string>, missedTests: MissedFile[]): boolean {
+function computeTestConfidence(
+  doc: StrataDoc,
+  changedPaths: Set<string>,
+  missedTests: MissedFile[],
+): ShapeDelta["testConfidence"] {
   const sourceChanged = Array.from(changedPaths).some(path => !isTestFile(path));
+  if (!sourceChanged) return "UNKNOWN";
+
   const testChanged = Array.from(changedPaths).some(isTestFile);
-  return sourceChanged && !testChanged && missedTests.length > 0;
+  if (testChanged) return "STRONG";
+  if (missedTests.length > 0) return "WEAK";
+
+  const hasAnyTests = doc.entities.some(e => isTestFile(e.filePath));
+  return hasAnyTests ? "WEAK" : "UNKNOWN";
+}
+
+function findBoundaryCrossings(
+  changedPaths: Set<string>,
+  affectedFiles: Set<string>,
+  pkgByFile: Map<string, string> | null,
+): string[] {
+  if (!pkgByFile) return [];
+
+  const changedPkgs = new Set<string>();
+  for (const filePath of changedPaths) {
+    changedPkgs.add(pkgByFile.get(filePath) ?? ".");
+  }
+
+  const crossings = new Set<string>();
+  for (const filePath of affectedFiles) {
+    if (changedPaths.has(filePath)) continue;
+    const affectedPkg = pkgByFile.get(filePath) ?? ".";
+    for (const changedPkg of changedPkgs) {
+      if (changedPkg !== affectedPkg) crossings.add(`${changedPkg} -> ${affectedPkg}`);
+    }
+  }
+
+  return Array.from(crossings).sort().slice(0, 5);
 }
 
 function findInvariantHint(filePaths: string[]): string | null {

@@ -22,6 +22,21 @@ function attentionColor(attention: DiffAnalysis["shapeDelta"]["attention"]): str
   return GREEN;
 }
 
+function testConfidenceColor(confidence: DiffAnalysis["shapeDelta"]["testConfidence"]): string {
+  if (confidence === "STRONG") return GREEN;
+  if (confidence === "WEAK") return YELLOW;
+  return DIM;
+}
+
+function changedEntitySummary(analysis: DiffAnalysis, filePath: string): string | null {
+  const names = analysis.changedEntities
+    .filter(e => e.filePath === filePath)
+    .map(e => e.name);
+  if (names.length === 0) return null;
+  if (names.length > 4) return `${names.slice(0, 4).join(", ")} +${names.length - 4}`;
+  return names.join(", ");
+}
+
 export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): string {
   const lines: string[] = [];
 
@@ -35,6 +50,10 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   lines.push(`    Changed files: ${analysis.shapeDelta.changedFileCount}`);
   lines.push(`    Affected files: ${analysis.shapeDelta.affectedFileCount}`);
   lines.push(`    Attention: ${attentionColor(analysis.shapeDelta.attention)}${analysis.shapeDelta.attention}${RESET}`);
+  lines.push(`    Test confidence: ${testConfidenceColor(analysis.shapeDelta.testConfidence)}${analysis.shapeDelta.testConfidence}${RESET}`);
+  if (analysis.shapeDelta.boundaryCrossings.length > 0) {
+    lines.push(`    Boundary crossings: ${analysis.shapeDelta.boundaryCrossings.join(", ")}`);
+  }
   lines.push("");
 
   if (analysis.shapeDelta.why.length > 0) {
@@ -58,7 +77,9 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   lines.push(`${BOLD}${WHITE}  Changed${RESET}`);
   for (const f of analysis.changedFiles) {
     const icon = f.status === "added" ? `${GREEN}+` : f.status === "deleted" ? `${RED}-` : `${CYAN}~`;
-    lines.push(`    ${icon}${RESET} ${f.filePath}`);
+    const entitySummary = changedEntitySummary(analysis, f.filePath);
+    const suffix = entitySummary ? `${DIM}: ${entitySummary}${RESET}` : "";
+    lines.push(`    ${icon}${RESET} ${f.filePath}${suffix}`);
   }
   lines.push("");
 

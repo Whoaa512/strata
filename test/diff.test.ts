@@ -118,9 +118,31 @@ describe("analyzeDiff", () => {
     expect(result.shapeDelta.changedFileCount).toBe(1);
     expect(result.shapeDelta.affectedFileCount).toBeGreaterThan(1);
     expect(result.shapeDelta.attention).toBe("RED");
+    expect(result.shapeDelta.testConfidence).toBe("WEAK");
     expect(result.shapeDelta.why.some(w => w.includes("implicit coupling"))).toBe(true);
     expect(result.shapeDelta.why.some(w => w.includes("test confidence weak"))).toBe(true);
     expect(result.shapeDelta.reviewFocus).toContain("Add/update tests covering affected ripple zone");
+  });
+
+  test("test confidence is strong when likely tests changed with source", () => {
+    const diff: DiffFile[] = [
+      { filePath: "a.ts", status: "modified" },
+      { filePath: "a.test.ts", status: "modified" },
+    ];
+    const result = analyzeDiff(doc, diff);
+
+    expect(result.shapeDelta.testConfidence).toBe("STRONG");
+    expect(result.shapeDelta.why.some(w => w.includes("test confidence weak"))).toBe(false);
+  });
+
+  test("test confidence is unknown when no likely tests exist", () => {
+    const noTestsDoc = makeDoc({
+      entities: doc.entities.filter(e => !e.filePath.includes(".test.")),
+    });
+    const diff: DiffFile[] = [{ filePath: "b.ts", status: "modified" }];
+    const result = analyzeDiff(noTestsDoc, diff);
+
+    expect(result.shapeDelta.testConfidence).toBe("UNKNOWN");
   });
 
   test("flags likely tests for affected ripple zone", () => {
@@ -131,6 +153,33 @@ describe("analyzeDiff", () => {
     expect(missedTestPaths).toContain("c.test.ts");
     const rippleTest = result.missedTests.find(m => m.filePath === "c.test.ts");
     expect(rippleTest?.reason).toContain("affected c.ts");
+  });
+
+  test("records package boundary crossings in shape delta", () => {
+    const tmpDir = `/tmp/strata-shape-boundary-${Date.now()}`;
+    const { mkdirSync, rmSync, writeFileSync } = require("fs");
+    mkdirSync(`${tmpDir}/packages/a/src`, { recursive: true });
+    mkdirSync(`${tmpDir}/packages/b/src`, { recursive: true });
+    writeFileSync(`${tmpDir}/packages/a/package.json`, "{}");
+    writeFileSync(`${tmpDir}/packages/b/package.json`, "{}");
+
+    const entities: Entity[] = [
+      makeEntity("packages/a/src/changed.ts:fn:1", "packages/a/src/changed.ts", 1, 10),
+      makeEntity("packages/b/src/affected.ts:fn:1", "packages/b/src/affected.ts", 1, 10),
+    ];
+    const boundaryDoc = makeMinimalDoc({
+      rootDir: tmpDir,
+      entities,
+      temporalCoupling: [
+        { fileA: "packages/a/src/changed.ts", fileB: "packages/b/src/affected.ts", cochangeCount: 4, confidence: 0.8, hasStaticDependency: false },
+      ],
+    });
+
+    const result = analyzeDiff(boundaryDoc, [{ filePath: "packages/a/src/changed.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.boundaryCrossings).toContain("packages/a -> packages/b");
+    expect(result.shapeDelta.why.some(w => w.includes("boundary crossing"))).toBe(true);
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 });
 
