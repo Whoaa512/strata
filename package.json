@@ -9,7 +9,8 @@
     "test": "bun test",
     "lint": "bunx --bun tsc --noEmit",
     "strata": "bun src/cli.ts",
-    "video:architecture": "bun scripts/make-architecture-video.ts"
+    "video:architecture": "bun scripts/make-architecture-video.ts",
+    "deck:architecture": "bun scripts/make-architecture-deck.ts"
   },
   "dependencies": {
     "tree-sitter-go": "^0.25.0",
