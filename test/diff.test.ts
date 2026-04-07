@@ -284,20 +284,50 @@ describe("analyzeDiff", () => {
     }
   });
 
-  test("records runtime and data shape hints from changed paths", () => {
+  test("records runtime/data/config hints from changed paths", () => {
     const entities: Entity[] = [
       makeEntity("src/routes/auth.ts:handler:1", "src/routes/auth.ts", 1, 10),
+      makeEntity("src/jobs/email.worker.ts:run:1", "src/jobs/email.worker.ts", 1, 10),
+      makeEntity("src/db/user.schema.ts:migrate:1", "src/db/user.schema.ts", 1, 10),
       makeEntity("src/config/flags.ts:loadFlags:1", "src/config/flags.ts", 1, 10),
     ];
     const shapeDoc = makeMinimalDoc({ entities });
     const result = analyzeDiff(shapeDoc, [
       { filePath: "src/routes/auth.ts", status: "modified" },
+      { filePath: "src/jobs/email.worker.ts", status: "modified" },
+      { filePath: "src/db/user.schema.ts", status: "modified" },
       { filePath: "src/config/flags.ts", status: "modified" },
     ]);
 
-    expect(result.shapeDelta.runtimeHints).toContain("runtime path hint: src/routes/auth.ts");
-    expect(result.shapeDelta.runtimeHints).toContain("config/data hint: src/config/flags.ts");
+    expect(result.shapeDelta.runtimeHints).toContain("runtime path hint: route/handler/controller/middleware touched: src/routes/auth.ts");
+    expect(result.shapeDelta.runtimeHints).toContain("async/job hint: worker/queue/cron touched: src/jobs/email.worker.ts");
+    expect(result.shapeDelta.runtimeHints).toContain("data shape hint: db/model/schema/migration touched: src/db/user.schema.ts");
+    expect(result.shapeDelta.runtimeHints).toContain("config/flag hint: config/env/flag touched: src/config/flags.ts");
     expect(result.shapeDelta.why.some(w => w.includes("runtime/data hint"))).toBe(true);
+  });
+
+  test("records runtime hints from changed entity text", () => {
+    const tmpDir = `/tmp/strata-runtime-text-${Date.now()}`;
+    const { mkdirSync, rmSync, writeFileSync } = require("fs");
+    mkdirSync(`${tmpDir}/src`, { recursive: true });
+    writeFileSync(`${tmpDir}/src/notifier.ts`, [
+      "export function notify() {",
+      "  publish('user.created')",
+      "  trackMetric('signup')",
+      "  if (process.env.FEATURE_X || featureFlag('new-flow')) return",
+      "}",
+    ].join("\n"));
+
+    try {
+      const entity = makeEntity("src/notifier.ts:notify:1", "src/notifier.ts", 1, 5);
+      const runtimeDoc = makeMinimalDoc({ rootDir: tmpDir, entities: [entity] });
+      const result = analyzeDiff(runtimeDoc, [{ filePath: "src/notifier.ts", status: "modified" }]);
+
+      expect(result.shapeDelta.runtimeHints).toContain("event/metric hint: emit/publish/track touched: src/notifier.ts:notify");
+      expect(result.shapeDelta.runtimeHints).toContain("config/flag hint: process.env/feature flag touched: src/notifier.ts:notify");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test("finds same-file sibling implementations in sibling directories", () => {

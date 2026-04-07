@@ -764,16 +764,44 @@ function higherRisk(
 function findRuntimeHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {
   const hints: string[] = [];
   for (const filePath of filePaths) {
-    if (/(^|\/)(routes?|middleware|handlers?|controllers?|workers?|jobs?|queues?|cron)(\/|\.|$)/i.test(filePath)) {
-      hints.push(`runtime path hint: ${filePath}`);
-      continue;
+    addPathRuntimeHint(filePath, hints);
+  }
+
+  for (const entity of changedEntities) {
+    const lines = readEntityLines(rootDir, entity);
+    if (!lines) continue;
+    const text = lines.join("\n");
+    if (/\b(emit|publish|track|metric|log)\b/i.test(text)) {
+      addHint(hints, `event/metric hint: emit/publish/track touched: ${entity.filePath}:${entity.name}`);
     }
-    if (/(^|\/)(config|flags?|schemas?|models?|db|database|migrations?)(\/|\.|$)/i.test(filePath)) {
-      hints.push(`config/data hint: ${filePath}`);
+    if (/process\.env|featureFlag|feature_flag|\bflag\(/i.test(text)) {
+      addHint(hints, `config/flag hint: process.env/feature flag touched: ${entity.filePath}:${entity.name}`);
     }
   }
 
-  return hints.slice(0, 5);
+  return hints.slice(0, 6);
+}
+
+function addPathRuntimeHint(filePath: string, hints: string[]) {
+  if (/(^|\/)(jobs?|workers?|queues?|cron)(\/|\.|-|_|$)|\.(worker|job)\./i.test(filePath)) {
+    addHint(hints, `async/job hint: worker/queue/cron touched: ${filePath}`);
+    return;
+  }
+  if (/(^|\/)(db|database|models?|schemas?|migrations?)(\/|\.|-|_|$)|\.(schema|model|migration)\./i.test(filePath)) {
+    addHint(hints, `data shape hint: db/model/schema/migration touched: ${filePath}`);
+    return;
+  }
+  if (/(^|\/)(config|flags?|env)(\/|\.|-|_|$)|\.(config|env)\./i.test(filePath)) {
+    addHint(hints, `config/flag hint: config/env/flag touched: ${filePath}`);
+    return;
+  }
+  if (/(^|\/)(routes?|handlers?|controllers?|middleware)(\/|\.|-|_|$)/i.test(filePath)) {
+    addHint(hints, `runtime path hint: route/handler/controller/middleware touched: ${filePath}`);
+  }
+}
+
+function addHint(hints: string[], hint: string) {
+  if (!hints.includes(hint)) hints.push(hint);
 }
 
 function findInvariantHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {
