@@ -439,6 +439,43 @@ describe("analyzeDiff", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  test("records invariant hints from throw/assert/guard calls", () => {
+    const tmpDir = `/tmp/strata-invariant-guard-${Date.now()}`;
+    const { mkdirSync, rmSync, writeFileSync } = require("fs");
+    mkdirSync(`${tmpDir}/src`, { recursive: true });
+    writeFileSync(`${tmpDir}/src/policy.ts`, [
+      "export function checkPolicy() {",
+      "  assertAllowed(user)",
+      "  guardTenant(account)",
+      "}",
+    ].join("\n"));
+
+    try {
+      const entity = makeEntity("src/policy.ts:checkPolicy:1", "src/policy.ts", 1, 4);
+      const invariantDoc = makeMinimalDoc({ rootDir: tmpDir, entities: [entity] });
+      const result = analyzeDiff(invariantDoc, [{ filePath: "src/policy.ts", status: "modified" }]);
+
+      expect(result.shapeDelta.invariantHints).toContain("src/policy.ts:checkPolicy");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("records invariant hints from changed test names with domain language", () => {
+    const entity = makeEntity("src/policy.test.ts:requiresPaymentPermission:1", "src/policy.test.ts", 1, 10);
+    const invariantDoc = makeMinimalDoc({ entities: [entity] });
+    const result = analyzeDiff(invariantDoc, [{ filePath: "src/policy.test.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.invariantHints).toContain("src/policy.test.ts:requiresPaymentPermission");
+  });
+
+  test("does not record invariant hints from docs-only paths", () => {
+    const invariantDoc = makeMinimalDoc();
+    const result = analyzeDiff(invariantDoc, [{ filePath: "docs/auth-token.md", status: "modified" }]);
+
+    expect(result.shapeDelta.invariantHints).toEqual([]);
+  });
 });
 
 describe("hubDampeningFactor", () => {

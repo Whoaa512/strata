@@ -911,6 +911,7 @@ function findInvariantHints(rootDir: string, filePaths: string[], changedEntitie
   const domainPattern = /(auth|session|token|permission|billing|payment|rate-?limit|validation|guard)/i;
 
   for (const filePath of filePaths) {
+    if (isDocsOnlyPath(filePath)) continue;
     if (domainPattern.test(filePath)) hints.add(filePath);
   }
 
@@ -922,8 +923,12 @@ function findInvariantHints(rootDir: string, filePaths: string[], changedEntitie
   return Array.from(hints).slice(0, 3);
 }
 
+function isDocsOnlyPath(filePath: string): boolean {
+  return /(^|\/)docs?\//i.test(filePath) || /\.(md|mdx|txt|rst)$/i.test(filePath);
+}
+
 function invariantHintForEntity(rootDir: string, entity: Entity): string | null {
-  const entityPattern = /(assert|authorize|enforce|ensure|guard|permit|require|session|token|validat)/i;
+  const entityPattern = /(assert|authoriz|enforce|ensure|guard|permission|permit|require|session|token|validat)/i;
   if (entityPattern.test(entity.name)) return `${entity.filePath}:${entity.name}`;
 
   const lines = readEntityLines(rootDir, entity);
