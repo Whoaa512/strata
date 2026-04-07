@@ -54,6 +54,9 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   if (analysis.shapeDelta.boundaryCrossings.length > 0) {
     lines.push(`    Boundary crossings: ${analysis.shapeDelta.boundaryCrossings.join(", ")}`);
   }
+  if (analysis.shapeDelta.affectedDirs.length > 0) {
+    lines.push(`    Affected dirs: ${analysis.shapeDelta.affectedDirs.join(", ")}`);
+  }
   lines.push("");
 
   if (analysis.shapeDelta.why.length > 0) {

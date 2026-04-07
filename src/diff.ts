@@ -29,6 +29,7 @@ export interface ShapeDelta {
   testConfidence: "STRONG" | "WEAK" | "UNKNOWN";
   boundaryCrossings: string[];
   invariantHints: string[];
+  affectedDirs: string[];
   why: string[];
   likelyMissed: MissedFile[];
   reviewFocus: string[];
@@ -172,6 +173,7 @@ export function analyzeDiff(doc: StrataDoc, diffFiles: DiffFile[], hunks?: DiffH
   findMissedFromTemporalCoupling(doc, changedPaths, missedMap);
   findMissedFromCallGraph(doc, changedEntityIds, changedPaths, missedMap, pkgByFile);
   findMissedFromRipple(doc, changedEntityIds, changedPaths, missedMap);
+  findMissedFromStructuralSiblings(doc, changedPaths, missedMap);
 
   boostMultiSignalFiles(missedMap);
 
@@ -350,6 +352,58 @@ function findMissedFromRipple(
   }
 }
 
+function findMissedFromStructuralSiblings(
+  doc: StrataDoc,
+  changedPaths: Set<string>,
+  missed: Map<string, MissedFile>,
+) {
+  const allPaths = new Set(doc.entities.map(e => e.filePath).filter(path => !isTestFile(path)));
+  for (const changedPath of changedPaths) {
+    if (isTestFile(changedPath)) continue;
+
+    for (const candidate of allPaths) {
+      if (candidate === changedPath || changedPaths.has(candidate)) continue;
+      if (!isSameFileInSiblingDirectory(changedPath, candidate)) continue;
+
+      addOrBoostMissedFile(missed, candidate, {
+        reason: `structural sibling of ${changedPath} (same filename in sibling directory)`,
+        confidence: 0.45,
+        source: changedPath,
+      });
+    }
+  }
+}
+
+function isSameFileInSiblingDirectory(a: string, b: string): boolean {
+  const aParts = a.split("/");
+  const bParts = b.split("/");
+  if (aParts.length < 3 || aParts.length !== bParts.length) return false;
+  if (aParts[aParts.length - 1] !== bParts[bParts.length - 1]) return false;
+  if (aParts[aParts.length - 2] === bParts[bParts.length - 2]) return false;
+  return aParts.slice(0, -2).join("/") === bParts.slice(0, -2).join("/");
+}
+
+function addOrBoostMissedFile(
+  missed: Map<string, MissedFile>,
+  filePath: string,
+  update: { reason: string; confidence: number; source: string },
+) {
+  const existing = missed.get(filePath);
+  if (existing) {
+    existing.confidence = Math.max(existing.confidence, update.confidence);
+    if (!existing.sources.includes(update.source)) existing.sources.push(update.source);
+    if (!existing.reason.includes("structural sibling")) existing.reason += ` + ${update.reason}`;
+    return;
+  }
+
+  missed.set(filePath, {
+    filePath,
+    reason: update.reason,
+    confidence: update.confidence,
+    sources: [update.source],
+  });
+}
+
 function addMissedTestFiles(
   doc: StrataDoc,
   changedPaths: Set<string>,
@@ -439,11 +493,16 @@ function buildShapeDelta(
   for (const missed of [...missedFiles, ...missedTests]) affectedFiles.add(missed.filePath);
   for (const caller of affectedCallers) affectedFiles.add(caller.filePath);
 
+  const affectedDirs = topDirs(affectedFiles);
+
   const topRippleDir = findTopRippleDir(changedEntities, doc.changeRipple, affectedFiles.size);
   if (topRippleDir) why.push(`ripple expanded in ${topRippleDir}`);
 
   const boundaryCrossings = findBoundaryCrossings(changedPaths, affectedFiles, pkgByFile);
   if (boundaryCrossings.length > 0) why.push(`boundary crossing: ${boundaryCrossings[0]}`);
+
+  const structuralSibling = missedFiles.find(m => m.reason.includes("structural sibling"));
+  if (structuralSibling) why.push(`structural sibling: ${structuralSibling.filePath}`);
 
   const implicit = missedFiles.find(m => m.reason.includes("no import") || m.reason.includes("implicit"));
   if (implicit) why.push(`implicit coupling: ${implicit.filePath}`);
@@ -471,12 +530,26 @@ function buildShapeDelta(
     testConfidence,
     boundaryCrossings,
     invariantHints,
+    affectedDirs,
     why: why.slice(0, 5),
     likelyMissed: [...missedFiles, ...missedTests]
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 5),
     reviewFocus: buildReviewFocus(missedFiles, missedTests, affectedCallers),
   };
+}
+
+function topDirs(files: Set<string>): string[] {
+  const counts = new Map<string, number>();
+  for (const filePath of files) {
+    const dir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ".";
+    counts.set(dir, (counts.get(dir) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 5)
+    .map(([dir]) => dir);
 }
 
 function findTopRippleDir(

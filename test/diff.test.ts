@@ -185,6 +185,27 @@ describe("analyzeDiff", () => {
     }
   });
 
+  test("records affected directories in shape delta", () => {
+    const diff: DiffFile[] = [{ filePath: "a.ts", status: "modified" }];
+    const result = analyzeDiff(doc, diff);
+
+    expect(result.shapeDelta.affectedDirs).toContain(".");
+  });
+
+  test("finds same-file sibling implementations in sibling directories", () => {
+    const entities: Entity[] = [
+      makeEntity("routes/rest/auth.ts:handler:1", "routes/rest/auth.ts", 1, 10),
+      makeEntity("routes/graphql/auth.ts:handler:1", "routes/graphql/auth.ts", 1, 10),
+    ];
+    const siblingDoc = makeMinimalDoc({ entities });
+    const result = analyzeDiff(siblingDoc, [{ filePath: "routes/rest/auth.ts", status: "modified" }]);
+
+    const missed = result.missedFiles.find(m => m.filePath === "routes/graphql/auth.ts");
+    expect(missed?.reason).toContain("structural sibling");
+    expect(result.shapeDelta.why.some(w => w.includes("structural sibling"))).toBe(true);
+    expect(result.shapeDelta.reviewFocus).toContain("Check sibling/parallel implementations near likely missed files");
+  });
+
   test("records invariant hints from changed entity text", () => {
     const tmpDir = `/tmp/strata-shape-invariant-${Date.now()}`;
     const { mkdirSync, rmSync, writeFileSync } = require("fs");
