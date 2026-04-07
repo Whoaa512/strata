@@ -30,6 +30,8 @@ export interface ShapeDelta {
   boundaryCrossings: string[];
   invariantHints: string[];
   affectedDirs: string[];
+  runtimeHints: string[];
+  changedRisk: { red: number; yellow: number; green: number };
   why: string[];
   likelyMissed: MissedFile[];
   reviewFocus: string[];
@@ -515,6 +517,11 @@ function buildShapeDelta(
   const invariantHints = findInvariantHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities);
   if (invariantHints.length > 0) why.push(`invariant hint: ${invariantHints[0]}`);
 
+  const runtimeHints = findRuntimeHints(changedFiles.map(f => f.filePath));
+  if (runtimeHints.length > 0) why.push(`runtime/data hint: ${runtimeHints[0]}`);
+
+  const changedRisk = countChangedRisk(doc, changedEntities);
+
   const redRisk = changedEntities.find(e => {
     const risk = doc.agentRisk.find(r => r.entityId === e.id);
     return risk?.safetyRating === "red";
@@ -531,6 +538,8 @@ function buildShapeDelta(
     boundaryCrossings,
     invariantHints,
     affectedDirs,
+    runtimeHints,
+    changedRisk,
     why: why.slice(0, 5),
     likelyMissed: [...missedFiles, ...missedTests]
       .sort((a, b) => b.confidence - a.confidence)
@@ -612,6 +621,34 @@ function findBoundaryCrossings(
   }
 
   return Array.from(crossings).sort().slice(0, 5);
+}
+
+function countChangedRisk(doc: StrataDoc, changedEntities: Entity[]): ShapeDelta["changedRisk"] {
+  const riskByEntity = new Map(doc.agentRisk.map(r => [r.entityId, r.safetyRating]));
+  const counts = { red: 0, yellow: 0, green: 0 };
+
+  for (const entity of changedEntities) {
+    const rating = riskByEntity.get(entity.id);
+    if (!rating) continue;
+    counts[rating] += 1;
+  }
+
+  return counts;
+}
+
+function findRuntimeHints(filePaths: string[]): string[] {
+  const hints: string[] = [];
+  for (const filePath of filePaths) {
+    if (/(^|\/)(routes?|middleware|handlers?|controllers?|workers?|jobs?|queues?|cron)(\/|\.|$)/i.test(filePath)) {
+      hints.push(`runtime path hint: ${filePath}`);
+      continue;
+    }
+    if (/(^|\/)(config|flags?|schemas?|models?|db|database|migrations?)(\/|\.|$)/i.test(filePath)) {
+      hints.push(`config/data hint: ${filePath}`);
+    }
+  }
+
+  return hints.slice(0, 5);
 }
 
 function findInvariantHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {

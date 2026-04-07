@@ -57,11 +57,19 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   if (analysis.shapeDelta.affectedDirs.length > 0) {
     lines.push(`    Affected dirs: ${analysis.shapeDelta.affectedDirs.join(", ")}`);
   }
+  const risk = analysis.shapeDelta.changedRisk;
+  lines.push(`    Changed risk: ${risk.red} red, ${risk.yellow} yellow, ${risk.green} green`);
   lines.push("");
 
   if (analysis.shapeDelta.why.length > 0) {
     lines.push(`    ${BOLD}Why:${RESET}`);
     for (const why of analysis.shapeDelta.why) lines.push(`    - ${why}`);
+    lines.push("");
+  }
+
+  if (analysis.shapeDelta.runtimeHints.length > 0) {
+    lines.push(`    ${BOLD}Runtime/data hints:${RESET}`);
+    for (const hint of analysis.shapeDelta.runtimeHints) lines.push(`    - ${hint}`);
     lines.push("");
   }
 

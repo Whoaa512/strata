@@ -25,6 +25,8 @@ describe("renderDiffAnalysis", () => {
         boundaryCrossings: ["src -> test"],
         invariantHints: [],
         affectedDirs: ["src", "test"],
+        runtimeHints: ["runtime path hint: src/auth.ts"],
+        changedRisk: { red: 1, yellow: 0, green: 1 },
         why: ["test confidence weak: likely tests not changed for affected area"],
         likelyMissed: [],
         reviewFocus: ["Add/update tests covering affected ripple zone"],
@@ -36,6 +38,8 @@ describe("renderDiffAnalysis", () => {
     expect(output).toContain("Test confidence: WEAK");
     expect(output).toContain("Boundary crossings: src -> test");
     expect(output).toContain("Affected dirs: src, test");
+    expect(output).toContain("Changed risk: 1 red, 0 yellow, 1 green");
+    expect(output).toContain("runtime path hint: src/auth.ts");
     expect(output).toContain("src/auth.ts: validateToken, refreshSession");
   });
 });

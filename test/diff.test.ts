@@ -185,11 +185,35 @@ describe("analyzeDiff", () => {
     }
   });
 
-  test("records affected directories in shape delta", () => {
+  test("records affected directories and changed risk mix in shape delta", () => {
+    const riskDoc = makeDoc({
+      agentRisk: [
+        { entityId: "a.ts:foo:1", rippleScore: 10, contextCost: 1000, safetyRating: "red", riskFactors: [] },
+      ],
+    });
     const diff: DiffFile[] = [{ filePath: "a.ts", status: "modified" }];
-    const result = analyzeDiff(doc, diff);
+    const result = analyzeDiff(riskDoc, diff);
 
     expect(result.shapeDelta.affectedDirs).toContain(".");
+    expect(result.shapeDelta.changedRisk.red).toBe(1);
+    expect(result.shapeDelta.changedRisk.yellow).toBe(0);
+    expect(result.shapeDelta.changedRisk.green).toBe(0);
+  });
+
+  test("records runtime and data shape hints from changed paths", () => {
+    const entities: Entity[] = [
+      makeEntity("src/routes/auth.ts:handler:1", "src/routes/auth.ts", 1, 10),
+      makeEntity("src/config/flags.ts:loadFlags:1", "src/config/flags.ts", 1, 10),
+    ];
+    const shapeDoc = makeMinimalDoc({ entities });
+    const result = analyzeDiff(shapeDoc, [
+      { filePath: "src/routes/auth.ts", status: "modified" },
+      { filePath: "src/config/flags.ts", status: "modified" },
+    ]);
+
+    expect(result.shapeDelta.runtimeHints).toContain("runtime path hint: src/routes/auth.ts");
+    expect(result.shapeDelta.runtimeHints).toContain("config/data hint: src/config/flags.ts");
+    expect(result.shapeDelta.why.some(w => w.includes("runtime/data hint"))).toBe(true);
   });
 
   test("finds same-file sibling implementations in sibling directories", () => {
