@@ -16,6 +16,12 @@ function confBar(confidence: number): string {
   return `${color}${pct}%${RESET}`;
 }
 
+function attentionColor(attention: DiffAnalysis["shapeDelta"]["attention"]): string {
+  if (attention === "RED") return RED;
+  if (attention === "YELLOW") return YELLOW;
+  return GREEN;
+}
+
 export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): string {
   const lines: string[] = [];
 
@@ -23,6 +29,30 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   lines.push(`${BOLD}${MAGENTA}  STRATA DIFF REVIEW${RESET}`);
   lines.push(`${DIM}  ${diffSpec} · ${analysis.changedFiles.length} files changed · ${analysis.changedEntities.length} entities${RESET}`);
   lines.push(`${DIM}  ${"━".repeat(50)}${RESET}`);
+  lines.push("");
+
+  lines.push(`${BOLD}${WHITE}  Shape delta${RESET}`);
+  lines.push(`    Changed files: ${analysis.shapeDelta.changedFileCount}`);
+  lines.push(`    Affected files: ${analysis.shapeDelta.affectedFileCount}`);
+  lines.push(`    Attention: ${attentionColor(analysis.shapeDelta.attention)}${analysis.shapeDelta.attention}${RESET}`);
+  lines.push("");
+
+  if (analysis.shapeDelta.why.length > 0) {
+    lines.push(`    ${BOLD}Why:${RESET}`);
+    for (const why of analysis.shapeDelta.why) lines.push(`    - ${why}`);
+    lines.push("");
+  }
+
+  if (analysis.shapeDelta.likelyMissed.length > 0) {
+    lines.push(`    ${BOLD}Likely missed:${RESET}`);
+    for (const missed of analysis.shapeDelta.likelyMissed) {
+      lines.push(`    - ${missed.filePath} — ${missed.reason}, ${Math.round(missed.confidence * 100)}%`);
+    }
+    lines.push("");
+  }
+
+  lines.push(`    ${BOLD}Review focus:${RESET}`);
+  for (const focus of analysis.shapeDelta.reviewFocus) lines.push(`    - ${focus}`);
   lines.push("");
 
   lines.push(`${BOLD}${WHITE}  Changed${RESET}`);

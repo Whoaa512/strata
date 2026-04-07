@@ -12,6 +12,7 @@ function makeDoc(overrides: Partial<StrataDoc> = {}): StrataDoc {
       { id: "b.ts:bar:1", name: "bar", kind: "function", filePath: "b.ts", startLine: 1, endLine: 30, metrics: { cyclomatic: 1, cognitive: 1, loc: 30, maxNestingDepth: 0, parameterCount: 1 } },
       { id: "c.ts:baz:1", name: "baz", kind: "function", filePath: "c.ts", startLine: 1, endLine: 10, metrics: { cyclomatic: 1, cognitive: 1, loc: 10, maxNestingDepth: 0, parameterCount: 1 } },
       { id: "a.test.ts:testFoo:1", name: "testFoo", kind: "function", filePath: "a.test.ts", startLine: 1, endLine: 15, metrics: { cyclomatic: 1, cognitive: 1, loc: 15, maxNestingDepth: 0, parameterCount: 0 } },
+      { id: "c.test.ts:testBaz:1", name: "testBaz", kind: "function", filePath: "c.test.ts", startLine: 1, endLine: 15, metrics: { cyclomatic: 1, cognitive: 1, loc: 15, maxNestingDepth: 0, parameterCount: 0 } },
     ],
     callGraph: [
       { caller: "a.ts:foo:1", callee: "b.ts:bar:1" },
@@ -106,6 +107,30 @@ describe("analyzeDiff", () => {
     expect(result.missedFiles.length).toBe(0);
     expect(result.missedTests.length).toBe(0);
     expect(result.affectedCallers.length).toBe(0);
+    expect(result.shapeDelta.attention).toBe("GREEN");
+    expect(result.shapeDelta.affectedFileCount).toBe(0);
+  });
+
+  test("builds shape delta from changed and affected files", () => {
+    const diff: DiffFile[] = [{ filePath: "a.ts", status: "modified" }];
+    const result = analyzeDiff(doc, diff);
+
+    expect(result.shapeDelta.changedFileCount).toBe(1);
+    expect(result.shapeDelta.affectedFileCount).toBeGreaterThan(1);
+    expect(result.shapeDelta.attention).toBe("RED");
+    expect(result.shapeDelta.why.some(w => w.includes("implicit coupling"))).toBe(true);
+    expect(result.shapeDelta.why.some(w => w.includes("test confidence weak"))).toBe(true);
+    expect(result.shapeDelta.reviewFocus).toContain("Add/update tests covering affected ripple zone");
+  });
+
+  test("flags likely tests for affected ripple zone", () => {
+    const diff: DiffFile[] = [{ filePath: "a.ts", status: "modified" }];
+    const result = analyzeDiff(doc, diff);
+
+    const missedTestPaths = result.missedTests.map(m => m.filePath);
+    expect(missedTestPaths).toContain("c.test.ts");
+    const rippleTest = result.missedTests.find(m => m.filePath === "c.test.ts");
+    expect(rippleTest?.reason).toContain("affected c.ts");
   });
 });
 
