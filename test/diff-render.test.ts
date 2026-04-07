@@ -23,6 +23,7 @@ describe("renderDiffAnalysis", () => {
         attention: "YELLOW",
         testConfidence: "WEAK",
         boundaryCrossings: ["src -> test"],
+        invariantHints: [],
         why: ["test confidence weak: likely tests not changed for affected area"],
         likelyMissed: [],
         reviewFocus: ["Add/update tests covering affected ripple zone"],

@@ -163,23 +163,49 @@ describe("analyzeDiff", () => {
     writeFileSync(`${tmpDir}/packages/a/package.json`, "{}");
     writeFileSync(`${tmpDir}/packages/b/package.json`, "{}");
 
-    const entities: Entity[] = [
-      makeEntity("packages/a/src/changed.ts:fn:1", "packages/a/src/changed.ts", 1, 10),
-      makeEntity("packages/b/src/affected.ts:fn:1", "packages/b/src/affected.ts", 1, 10),
-    ];
-    const boundaryDoc = makeMinimalDoc({
-      rootDir: tmpDir,
-      entities,
-      temporalCoupling: [
-        { fileA: "packages/a/src/changed.ts", fileB: "packages/b/src/affected.ts", cochangeCount: 4, confidence: 0.8, hasStaticDependency: false },
-      ],
-    });
+    try {
+      const entities: Entity[] = [
+        makeEntity("packages/a/src/changed.ts:fn:1", "packages/a/src/changed.ts", 1, 10),
+        makeEntity("packages/b/src/affected.ts:fn:1", "packages/b/src/affected.ts", 1, 10),
+      ];
+      const boundaryDoc = makeMinimalDoc({
+        rootDir: tmpDir,
+        entities,
+        temporalCoupling: [
+          { fileA: "packages/a/src/changed.ts", fileB: "packages/b/src/affected.ts", cochangeCount: 4, confidence: 0.8, hasStaticDependency: false },
+        ],
+      });
 
-    const result = analyzeDiff(boundaryDoc, [{ filePath: "packages/a/src/changed.ts", status: "modified" }]);
+      const result = analyzeDiff(boundaryDoc, [{ filePath: "packages/a/src/changed.ts", status: "modified" }]);
 
-    expect(result.shapeDelta.boundaryCrossings).toContain("packages/a -> packages/b");
-    expect(result.shapeDelta.why.some(w => w.includes("boundary crossing"))).toBe(true);
-    rmSync(tmpDir, { recursive: true, force: true });
+      expect(result.shapeDelta.boundaryCrossings).toContain("packages/a -> packages/b");
+      expect(result.shapeDelta.why.some(w => w.includes("boundary crossing"))).toBe(true);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("records invariant hints from changed entity text", () => {
+    const tmpDir = `/tmp/strata-shape-invariant-${Date.now()}`;
+    const { mkdirSync, rmSync, writeFileSync } = require("fs");
+    mkdirSync(`${tmpDir}/src`, { recursive: true });
+    writeFileSync(`${tmpDir}/src/order.ts`, [
+      "export function processOrder() {",
+      "  // must never ship without payment",
+      "  if (!paid) throw new Error('required')",
+      "}",
+    ].join("\n"));
+
+    try {
+      const entity = makeEntity("src/order.ts:processOrder:1", "src/order.ts", 1, 4);
+      const invariantDoc = makeMinimalDoc({ rootDir: tmpDir, entities: [entity] });
+      const result = analyzeDiff(invariantDoc, [{ filePath: "src/order.ts", status: "modified" }]);
+
+      expect(result.shapeDelta.invariantHints[0]).toContain("src/order.ts:processOrder");
+      expect(result.shapeDelta.why.some(w => w.includes("invariant hint"))).toBe(true);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

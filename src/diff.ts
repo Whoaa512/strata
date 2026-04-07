@@ -1,4 +1,6 @@
 import { execSync } from "child_process";
+import { readFileSync } from "fs";
+import { join } from "path";
 import type { StrataDoc, ChangeRipple, TemporalCoupling, Entity } from "./schema";
 import { getPackageBoundaries } from "./ripple";
 
@@ -26,6 +28,7 @@ export interface ShapeDelta {
   attention: "GREEN" | "YELLOW" | "RED";
   testConfidence: "STRONG" | "WEAK" | "UNKNOWN";
   boundaryCrossings: string[];
+  invariantHints: string[];
   why: string[];
   likelyMissed: MissedFile[];
   reviewFocus: string[];
@@ -450,8 +453,8 @@ function buildShapeDelta(
     why.push("test confidence weak: likely tests not changed for affected area");
   }
 
-  const invariantHint = findInvariantHint(changedFiles.map(f => f.filePath));
-  if (invariantHint) why.push(`invariant hint: ${invariantHint}`);
+  const invariantHints = findInvariantHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities);
+  if (invariantHints.length > 0) why.push(`invariant hint: ${invariantHints[0]}`);
 
   const redRisk = changedEntities.find(e => {
     const risk = doc.agentRisk.find(r => r.entityId === e.id);
@@ -467,6 +470,7 @@ function buildShapeDelta(
     attention,
     testConfidence,
     boundaryCrossings,
+    invariantHints,
     why: why.slice(0, 5),
     likelyMissed: [...missedFiles, ...missedTests]
       .sort((a, b) => b.confidence - a.confidence)
@@ -537,9 +541,50 @@ function findBoundaryCrossings(
   return Array.from(crossings).sort().slice(0, 5);
 }
 
-function findInvariantHint(filePaths: string[]): string | null {
-  const pattern = /(auth|session|token|permission|billing|payment|rate-?limit|validation|guard)/i;
-  return filePaths.find(path => pattern.test(path)) ?? null;
+function findInvariantHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {
+  const hints = new Set<string>();
+  const domainPattern = /(auth|session|token|permission|billing|payment|rate-?limit|validation|guard)/i;
+
+  for (const filePath of filePaths) {
+    if (domainPattern.test(filePath)) hints.add(filePath);
+  }
+
+  for (const entity of changedEntities) {
+    const entityHint = invariantHintForEntity(rootDir, entity);
+    if (entityHint) hints.add(entityHint);
+  }
+
+  return Array.from(hints).slice(0, 3);
+}
+
+function invariantHintForEntity(rootDir: string, entity: Entity): string | null {
+  const entityPattern = /(assert|authorize|enforce|ensure|guard|permit|require|session|token|validat)/i;
+  if (entityPattern.test(entity.name)) return `${entity.filePath}:${entity.name}`;
+
+  const lines = readEntityLines(rootDir, entity);
+  if (!lines) return null;
+
+  return lines.some(hasInvariantText) ? `${entity.filePath}:${entity.name}` : null;
+}
+
+function hasInvariantText(line: string): boolean {
+  const trimmed = line.trim();
+  const commentHasRule = /^(\/\/|\/\*|\*)/.test(trimmed)
+    && /\b(must|never|always|required|invariant)\b/i.test(trimmed);
+  if (commentHasRule) return true;
+
+  return /\bthrow\b/i.test(trimmed)
+    || /\bassert[A-Za-z0-9_]*\s*\(/i.test(trimmed)
+    || /\b(validate|guard)[A-Za-z0-9_]*\s*\(/i.test(trimmed);
+}
+
+function readEntityLines(rootDir: string, entity: Entity): string[] | null {
+  try {
+    const content = readFileSync(join(rootDir, entity.filePath), "utf-8");
+    return content.split("\n").slice(entity.startLine - 1, entity.endLine);
+  } catch {
+    return null;
+  }
 }
 
 function computeShapeAttention(
