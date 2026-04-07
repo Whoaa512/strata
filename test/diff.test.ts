@@ -330,6 +330,27 @@ describe("analyzeDiff", () => {
     }
   });
 
+  test("does not record runtime text hints from string literals only", () => {
+    const tmpDir = `/tmp/strata-runtime-string-${Date.now()}`;
+    const { mkdirSync, rmSync, writeFileSync } = require("fs");
+    mkdirSync(`${tmpDir}/src`, { recursive: true });
+    writeFileSync(`${tmpDir}/src/message.ts`, [
+      "export function message() {",
+      "  return 'publish process.env featureFlag metric'",
+      "}",
+    ].join("\n"));
+
+    try {
+      const entity = makeEntity("src/message.ts:message:1", "src/message.ts", 1, 3);
+      const runtimeDoc = makeMinimalDoc({ rootDir: tmpDir, entities: [entity] });
+      const result = analyzeDiff(runtimeDoc, [{ filePath: "src/message.ts", status: "modified" }]);
+
+      expect(result.shapeDelta.runtimeHints).toEqual([]);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test("finds same-file sibling implementations in sibling directories", () => {
     const entities: Entity[] = [
       makeEntity("routes/rest/auth.ts:handler:1", "routes/rest/auth.ts", 1, 10),

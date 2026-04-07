@@ -770,11 +770,11 @@ function findRuntimeHints(rootDir: string, filePaths: string[], changedEntities:
   for (const entity of changedEntities) {
     const lines = readEntityLines(rootDir, entity);
     if (!lines) continue;
-    const text = lines.join("\n");
-    if (/\b(emit|publish|track|metric|log)\b/i.test(text)) {
+    const text = stripQuotedText(lines.join("\n"));
+    if (/\b(emit|publish|track[A-Za-z]*|metric[A-Za-z]*|log[A-Za-z]*)\s*\(/i.test(text)) {
       addHint(hints, `event/metric hint: emit/publish/track touched: ${entity.filePath}:${entity.name}`);
     }
-    if (/process\.env|featureFlag|feature_flag|\bflag\(/i.test(text)) {
+    if (/process\.env|featureFlag\s*\(|feature_flag\s*\(|\bflag\s*\(/i.test(text)) {
       addHint(hints, `config/flag hint: process.env/feature flag touched: ${entity.filePath}:${entity.name}`);
     }
   }
@@ -802,6 +802,13 @@ function addPathRuntimeHint(filePath: string, hints: string[]) {
 
 function addHint(hints: string[], hint: string) {
   if (!hints.includes(hint)) hints.push(hint);
+}
+
+function stripQuotedText(text: string): string {
+  return text
+    .replace(/`(?:\\.|[^`])*`/g, "")
+    .replace(/"(?:\\.|[^"])*"/g, "")
+    .replace(/'(?:\\.|[^'])*'/g, "");
 }
 
 function findInvariantHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {
