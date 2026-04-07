@@ -21,24 +21,47 @@ describe("renderDiffAnalysis", () => {
         changedFileCount: 1,
         affectedFileCount: 3,
         attention: "YELLOW",
-        testConfidence: "WEAK",
+        testConfidence: "PARTIAL",
+        testRecommendations: ["test/auth.test.ts"],
         boundaryCrossings: ["src -> test"],
         invariantHints: [],
         affectedDirs: ["src", "test"],
         runtimeHints: ["runtime path hint: src/auth.ts"],
+        changedPackages: ["src"],
+        affectedPackages: ["src", "test"],
         changedRisk: { red: 1, yellow: 0, green: 1 },
-        why: ["test confidence weak: likely tests not changed for affected area"],
+        affectedRisk: { red: 1, yellow: 1, green: 1 },
+        shapeMovements: ["ripple widened beyond changed files", "crossed package boundary: src -> test", "weak tests in affected zone"],
+        why: ["test confidence partial: affected ripple tests still need review"],
         likelyMissed: [],
         reviewFocus: ["Add/update tests covering affected ripple zone"],
+        summary: {
+          changedFiles: ["src/auth.ts"],
+          affectedFiles: ["src/auth.ts", "test/auth.test.ts"],
+          affectedDirs: ["src", "test"],
+          changedPackages: ["src"],
+          affectedPackages: ["src", "test"],
+          hiddenCouplings: [],
+          testConfidence: "PARTIAL",
+          invariantHints: [],
+          runtimeHints: ["runtime path hint: src/auth.ts"],
+          boundaryCrossings: ["src -> test"],
+          reviewFocus: ["Add/update tests covering affected ripple zone"],
+        },
       },
     };
 
     const output = stripAnsi(renderDiffAnalysis(analysis, "HEAD~1"));
 
-    expect(output).toContain("Test confidence: WEAK");
+    expect(output).toContain("Test confidence: PARTIAL");
+    expect(output).toContain("Consider running/updating likely guard tests: test/auth.test.ts");
     expect(output).toContain("Boundary crossings: src -> test");
+    expect(output).toContain("Changed packages: src");
+    expect(output).toContain("Affected packages: src, test");
     expect(output).toContain("Affected dirs: src, test");
     expect(output).toContain("Changed risk: 1 red, 0 yellow, 1 green");
+    expect(output).toContain("Affected risk: 1 red, 1 yellow, 1 green");
+    expect(output).toContain("ripple widened beyond changed files");
     expect(output).toContain("runtime path hint: src/auth.ts");
     expect(output).toContain("src/auth.ts: validateToken, refreshSession");
   });

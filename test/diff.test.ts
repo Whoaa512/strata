@@ -124,14 +124,14 @@ describe("analyzeDiff", () => {
     expect(result.shapeDelta.reviewFocus).toContain("Add/update tests covering affected ripple zone");
   });
 
-  test("test confidence is strong when likely tests changed with source", () => {
+  test("test confidence is partial when source test changed but ripple test is missing", () => {
     const diff: DiffFile[] = [
       { filePath: "a.ts", status: "modified" },
       { filePath: "a.test.ts", status: "modified" },
     ];
     const result = analyzeDiff(doc, diff);
 
-    expect(result.shapeDelta.testConfidence).toBe("STRONG");
+    expect(result.shapeDelta.testConfidence).toBe("PARTIAL");
     expect(result.shapeDelta.why.some(w => w.includes("test confidence weak"))).toBe(false);
   });
 
@@ -143,6 +143,47 @@ describe("analyzeDiff", () => {
     const result = analyzeDiff(noTestsDoc, diff);
 
     expect(result.shapeDelta.testConfidence).toBe("UNKNOWN");
+  });
+
+  test("test confidence is partial when changed source test exists but ripple test is missing", () => {
+    const diff: DiffFile[] = [
+      { filePath: "a.ts", status: "modified" },
+      { filePath: "a.test.ts", status: "modified" },
+    ];
+    const result = analyzeDiff(doc, diff);
+
+    expect(result.shapeDelta.testConfidence).toBe("PARTIAL");
+    expect(result.shapeDelta.testRecommendations).toContain("c.test.ts");
+  });
+
+  test("test confidence is weak when likely guard tests exist but none changed", () => {
+    const result = analyzeDiff(doc, [{ filePath: "a.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.testConfidence).toBe("WEAK");
+    expect(result.shapeDelta.testRecommendations).toContain("a.test.ts");
+    expect(result.shapeDelta.testRecommendations).toContain("c.test.ts");
+  });
+
+  test("test confidence is strong when all likely guard tests changed", () => {
+    const diff: DiffFile[] = [
+      { filePath: "a.ts", status: "modified" },
+      { filePath: "a.test.ts", status: "modified" },
+      { filePath: "c.test.ts", status: "modified" },
+    ];
+    const result = analyzeDiff(doc, diff);
+
+    expect(result.shapeDelta.testConfidence).toBe("STRONG");
+    expect(result.shapeDelta.testRecommendations).toEqual(expect.arrayContaining(["a.test.ts", "c.test.ts"]));
+  });
+
+  test("test confidence remains unknown when no likely guard tests are known", () => {
+    const noLikelyTestsDoc = makeMinimalDoc({
+      entities: [makeEntity("src/feature.ts:run:1", "src/feature.ts", 1, 10)],
+    });
+    const result = analyzeDiff(noLikelyTestsDoc, [{ filePath: "src/feature.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.testConfidence).toBe("UNKNOWN");
+    expect(result.shapeDelta.testRecommendations).toEqual([]);
   });
 
   test("flags likely tests for affected ripple zone", () => {
@@ -198,6 +239,49 @@ describe("analyzeDiff", () => {
     expect(result.shapeDelta.changedRisk.red).toBe(1);
     expect(result.shapeDelta.changedRisk.yellow).toBe(0);
     expect(result.shapeDelta.changedRisk.green).toBe(0);
+  });
+
+  test("summarizes packages, affected risk, and top shape movements", () => {
+    const tmpDir = `/tmp/strata-shape-summary-${Date.now()}`;
+    const { mkdirSync, rmSync, writeFileSync } = require("fs");
+    mkdirSync(`${tmpDir}/packages/a/src`, { recursive: true });
+    mkdirSync(`${tmpDir}/packages/b/src`, { recursive: true });
+    writeFileSync(`${tmpDir}/packages/a/package.json`, "{}");
+    writeFileSync(`${tmpDir}/packages/b/package.json`, "{}");
+
+    try {
+      const entities: Entity[] = [
+        makeEntity("packages/a/src/changed.ts:fn:1", "packages/a/src/changed.ts", 1, 10),
+        makeEntity("packages/b/src/affected.ts:fn:1", "packages/b/src/affected.ts", 1, 10),
+        makeEntity("packages/b/src/affected.test.ts:testAffected:1", "packages/b/src/affected.test.ts", 1, 10),
+      ];
+      const shapeDoc = makeMinimalDoc({
+        rootDir: tmpDir,
+        entities,
+        temporalCoupling: [
+          { fileA: "packages/a/src/changed.ts", fileB: "packages/b/src/affected.ts", cochangeCount: 4, confidence: 0.8, hasStaticDependency: false },
+        ],
+        changeRipple: [
+          { entityId: "packages/a/src/changed.ts:fn:1", rippleScore: 4, staticDeps: [], temporalDeps: ["packages/b/src/affected.ts"], implicitCouplings: [{ filePath: "packages/b/src/affected.ts", cochangeRate: 0.8 }], affectedFiles: ["packages/b/src/affected.ts"] },
+        ],
+        agentRisk: [
+          { entityId: "packages/a/src/changed.ts:fn:1", rippleScore: 5, contextCost: 100, safetyRating: "red", riskFactors: [] },
+          { entityId: "packages/b/src/affected.ts:fn:1", rippleScore: 3, contextCost: 100, safetyRating: "yellow", riskFactors: [] },
+        ],
+      });
+
+      const result = analyzeDiff(shapeDoc, [{ filePath: "packages/a/src/changed.ts", status: "modified" }]);
+
+      expect(result.shapeDelta.changedPackages).toEqual(["packages/a"]);
+      expect(result.shapeDelta.affectedPackages).toContain("packages/b");
+      expect(result.shapeDelta.affectedRisk.yellow).toBe(1);
+      expect(result.shapeDelta.shapeMovements).toContain("ripple widened beyond changed files");
+      expect(result.shapeDelta.shapeMovements).toContain("crossed package boundary: packages/a -> packages/b");
+      expect(result.shapeDelta.shapeMovements.length).toBeLessThanOrEqual(3);
+      expect(result.shapeDelta.summary.hiddenCouplings).toContain("packages/b/src/affected.ts");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test("records runtime and data shape hints from changed paths", () => {

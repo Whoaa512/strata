@@ -24,7 +24,7 @@ function attentionColor(attention: DiffAnalysis["shapeDelta"]["attention"]): str
 
 function testConfidenceColor(confidence: DiffAnalysis["shapeDelta"]["testConfidence"]): string {
   if (confidence === "STRONG") return GREEN;
-  if (confidence === "WEAK") return YELLOW;
+  if (confidence === "PARTIAL" || confidence === "WEAK") return YELLOW;
   return DIM;
 }
 
@@ -51,15 +51,32 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   lines.push(`    Affected files: ${analysis.shapeDelta.affectedFileCount}`);
   lines.push(`    Attention: ${attentionColor(analysis.shapeDelta.attention)}${analysis.shapeDelta.attention}${RESET}`);
   lines.push(`    Test confidence: ${testConfidenceColor(analysis.shapeDelta.testConfidence)}${analysis.shapeDelta.testConfidence}${RESET}`);
+  if (analysis.shapeDelta.testRecommendations.length > 0) {
+    lines.push(`    Consider running/updating likely guard tests: ${analysis.shapeDelta.testRecommendations.join(", ")}`);
+  }
   if (analysis.shapeDelta.boundaryCrossings.length > 0) {
     lines.push(`    Boundary crossings: ${analysis.shapeDelta.boundaryCrossings.join(", ")}`);
+  }
+  if (analysis.shapeDelta.changedPackages.length > 0) {
+    lines.push(`    Changed packages: ${analysis.shapeDelta.changedPackages.join(", ")}`);
+  }
+  if (analysis.shapeDelta.affectedPackages.length > 0) {
+    lines.push(`    Affected packages: ${analysis.shapeDelta.affectedPackages.join(", ")}`);
   }
   if (analysis.shapeDelta.affectedDirs.length > 0) {
     lines.push(`    Affected dirs: ${analysis.shapeDelta.affectedDirs.join(", ")}`);
   }
   const risk = analysis.shapeDelta.changedRisk;
   lines.push(`    Changed risk: ${risk.red} red, ${risk.yellow} yellow, ${risk.green} green`);
+  const affectedRisk = analysis.shapeDelta.affectedRisk;
+  lines.push(`    Affected risk: ${affectedRisk.red} red, ${affectedRisk.yellow} yellow, ${affectedRisk.green} green`);
   lines.push("");
+
+  if (analysis.shapeDelta.shapeMovements.length > 0) {
+    lines.push(`    ${BOLD}Shape movements:${RESET}`);
+    for (const movement of analysis.shapeDelta.shapeMovements) lines.push(`    - ${movement}`);
+    lines.push("");
+  }
 
   if (analysis.shapeDelta.why.length > 0) {
     lines.push(`    ${BOLD}Why:${RESET}`);

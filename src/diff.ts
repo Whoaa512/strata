@@ -22,19 +22,42 @@ export interface MissedFile {
   sources: string[];
 }
 
+type TestConfidence = "STRONG" | "PARTIAL" | "WEAK" | "UNKNOWN";
+type RiskMix = { red: number; yellow: number; green: number };
+
+export interface ShapeSummary {
+  changedFiles: string[];
+  affectedFiles: string[];
+  affectedDirs: string[];
+  changedPackages: string[];
+  affectedPackages: string[];
+  hiddenCouplings: string[];
+  testConfidence: TestConfidence;
+  invariantHints: string[];
+  runtimeHints: string[];
+  boundaryCrossings: string[];
+  reviewFocus: string[];
+}
+
 export interface ShapeDelta {
   changedFileCount: number;
   affectedFileCount: number;
   attention: "GREEN" | "YELLOW" | "RED";
-  testConfidence: "STRONG" | "WEAK" | "UNKNOWN";
+  testConfidence: TestConfidence;
+  testRecommendations: string[];
   boundaryCrossings: string[];
   invariantHints: string[];
   affectedDirs: string[];
   runtimeHints: string[];
-  changedRisk: { red: number; yellow: number; green: number };
+  changedPackages: string[];
+  affectedPackages: string[];
+  changedRisk: RiskMix;
+  affectedRisk: RiskMix;
+  shapeMovements: string[];
   why: string[];
   likelyMissed: MissedFile[];
   reviewFocus: string[];
+  summary: ShapeSummary;
 }
 
 export interface DiffAnalysis {
@@ -496,12 +519,17 @@ function buildShapeDelta(
   for (const caller of affectedCallers) affectedFiles.add(caller.filePath);
 
   const affectedDirs = topDirs(affectedFiles);
+  const changedPackages = findPackages(changedPaths, pkgByFile);
+  const affectedPackages = findPackages(affectedFiles, pkgByFile);
 
   const topRippleDir = findTopRippleDir(changedEntities, doc.changeRipple, affectedFiles.size);
   if (topRippleDir) why.push(`ripple expanded in ${topRippleDir}`);
 
   const boundaryCrossings = findBoundaryCrossings(changedPaths, affectedFiles, pkgByFile);
-  if (boundaryCrossings.length > 0) why.push(`boundary crossing: ${boundaryCrossings[0]}`);
+  if (boundaryCrossings.length > 0) {
+    why.push(`boundary crossing: ${boundaryCrossings[0]}`);
+    why.push(`changed package ${boundaryCrossings[0].replace(" -> ", " affected package ")}`);
+  }
 
   const structuralSibling = missedFiles.find(m => m.reason.includes("structural sibling"));
   if (structuralSibling) why.push(`structural sibling: ${structuralSibling.filePath}`);
@@ -509,18 +537,21 @@ function buildShapeDelta(
   const implicit = missedFiles.find(m => m.reason.includes("no import") || m.reason.includes("implicit"));
   if (implicit) why.push(`implicit coupling: ${implicit.filePath}`);
 
-  const testConfidence = computeTestConfidence(doc, changedPaths, missedTests);
-  if (testConfidence === "WEAK") {
-    why.push("test confidence weak: likely tests not changed for affected area");
+  const testPlan = computeTestPlan(doc, changedPaths, affectedFiles);
+  if (testPlan.confidence === "WEAK") {
+    why.push("test confidence weak: likely guard tests not changed for affected area");
+  } else if (testPlan.confidence === "PARTIAL") {
+    why.push("test confidence partial: affected ripple tests still need review");
   }
 
   const invariantHints = findInvariantHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities);
   if (invariantHints.length > 0) why.push(`invariant hint: ${invariantHints[0]}`);
 
-  const runtimeHints = findRuntimeHints(changedFiles.map(f => f.filePath));
+  const runtimeHints = findRuntimeHints(doc.rootDir, changedFiles.map(f => f.filePath), changedEntities);
   if (runtimeHints.length > 0) why.push(`runtime/data hint: ${runtimeHints[0]}`);
 
   const changedRisk = countChangedRisk(doc, changedEntities);
+  const affectedRisk = countRiskForFiles(doc, affectedFiles);
 
   const redRisk = changedEntities.find(e => {
     const risk = doc.agentRisk.find(r => r.entityId === e.id);
@@ -528,23 +559,57 @@ function buildShapeDelta(
   });
   if (redRisk) why.push(`changed red attention area: ${redRisk.filePath}`);
 
+  const shapeMovements = buildShapeMovements({
+    affectedFileCount: affectedFiles.size,
+    changedFileCount: changedFiles.length,
+    boundaryCrossings,
+    implicitFile: implicit?.filePath,
+    testConfidence: testPlan.confidence,
+    runtimeHints,
+    invariantHints,
+  });
+  const reviewFocus = buildReviewFocus(missedFiles, missedTests, affectedCallers);
   const attention = computeShapeAttention(affectedFiles.size, changedFiles.length, missedFiles, missedTests, affectedCallers, why);
+  const likelyMissed = [...missedFiles, ...missedTests]
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 5);
+  const hiddenCouplings = missedFiles
+    .filter(m => m.reason.includes("no import") || m.reason.includes("implicit") || m.reason.includes("co-change"))
+    .map(m => m.filePath)
+    .slice(0, 10);
+  const summary: ShapeSummary = {
+    changedFiles: Array.from(changedPaths).sort(),
+    affectedFiles: Array.from(affectedFiles).sort(),
+    affectedDirs,
+    changedPackages,
+    affectedPackages,
+    hiddenCouplings,
+    testConfidence: testPlan.confidence,
+    invariantHints,
+    runtimeHints,
+    boundaryCrossings,
+    reviewFocus,
+  };
 
   return {
     changedFileCount: changedFiles.length,
     affectedFileCount: affectedFiles.size,
     attention,
-    testConfidence,
+    testConfidence: testPlan.confidence,
+    testRecommendations: testPlan.recommendations,
     boundaryCrossings,
     invariantHints,
     affectedDirs,
     runtimeHints,
+    changedPackages,
+    affectedPackages,
     changedRisk,
+    affectedRisk,
+    shapeMovements,
     why: why.slice(0, 5),
-    likelyMissed: [...missedFiles, ...missedTests]
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5),
-    reviewFocus: buildReviewFocus(missedFiles, missedTests, affectedCallers),
+    likelyMissed,
+    reviewFocus,
+    summary,
   };
 }
 
@@ -583,20 +648,55 @@ function findTopRippleDir(
   return top?.[1] ? top[0] : null;
 }
 
-function computeTestConfidence(
+interface TestPlan {
+  confidence: TestConfidence;
+  recommendations: string[];
+}
+
+function computeTestPlan(
   doc: StrataDoc,
   changedPaths: Set<string>,
-  missedTests: MissedFile[],
-): ShapeDelta["testConfidence"] {
-  const sourceChanged = Array.from(changedPaths).some(path => !isTestFile(path));
-  if (!sourceChanged) return "UNKNOWN";
+  affectedFiles: Set<string>,
+): TestPlan {
+  const sourceFiles = Array.from(affectedFiles).filter(path => !isTestFile(path));
+  if (!sourceFiles.some(path => changedPaths.has(path))) {
+    return { confidence: "UNKNOWN", recommendations: [] };
+  }
 
-  const testChanged = Array.from(changedPaths).some(isTestFile);
-  if (testChanged) return "STRONG";
-  if (missedTests.length > 0) return "WEAK";
+  const knownFiles = new Set(doc.entities.map(e => e.filePath));
+  const likelyTests = new Set<string>();
+  for (const sourcePath of sourceFiles) {
+    for (const candidate of likelyTestCandidates(sourcePath)) {
+      if (knownFiles.has(candidate)) likelyTests.add(candidate);
+    }
+  }
 
-  const hasAnyTests = doc.entities.some(e => isTestFile(e.filePath));
-  return hasAnyTests ? "WEAK" : "UNKNOWN";
+  if (likelyTests.size === 0) {
+    return { confidence: "UNKNOWN", recommendations: [] };
+  }
+
+  const changedLikelyTests = Array.from(likelyTests).filter(path => changedPaths.has(path)).sort();
+  const missingLikelyTests = Array.from(likelyTests).filter(path => !changedPaths.has(path)).sort();
+  const recommendations = missingLikelyTests.length > 0 ? missingLikelyTests : changedLikelyTests;
+
+  if (missingLikelyTests.length === 0 && changedLikelyTests.length > 0) {
+    return { confidence: "STRONG", recommendations };
+  }
+  if (changedLikelyTests.length > 0) {
+    return { confidence: "PARTIAL", recommendations };
+  }
+  return { confidence: "WEAK", recommendations };
+}
+
+function findPackages(files: Set<string>, pkgByFile: Map<string, string> | null): string[] {
+  if (!pkgByFile) return [];
+
+  const packages = new Set<string>();
+  for (const filePath of files) {
+    packages.add(pkgByFile.get(filePath) ?? ".");
+  }
+
+  return Array.from(packages).sort().slice(0, 6);
 }
 
 function findBoundaryCrossings(
@@ -623,9 +723,9 @@ function findBoundaryCrossings(
   return Array.from(crossings).sort().slice(0, 5);
 }
 
-function countChangedRisk(doc: StrataDoc, changedEntities: Entity[]): ShapeDelta["changedRisk"] {
+function countChangedRisk(doc: StrataDoc, changedEntities: Entity[]): RiskMix {
   const riskByEntity = new Map(doc.agentRisk.map(r => [r.entityId, r.safetyRating]));
-  const counts = { red: 0, yellow: 0, green: 0 };
+  const counts: RiskMix = { red: 0, yellow: 0, green: 0 };
 
   for (const entity of changedEntities) {
     const rating = riskByEntity.get(entity.id);
@@ -636,7 +736,32 @@ function countChangedRisk(doc: StrataDoc, changedEntities: Entity[]): ShapeDelta
   return counts;
 }
 
-function findRuntimeHints(filePaths: string[]): string[] {
+function countRiskForFiles(doc: StrataDoc, filePaths: Set<string>): RiskMix {
+  const entityById = new Map(doc.entities.map(e => [e.id, e]));
+  const ratingByFile = new Map<string, "red" | "yellow" | "green">();
+
+  for (const risk of doc.agentRisk) {
+    const entity = entityById.get(risk.entityId);
+    if (!entity || !filePaths.has(entity.filePath)) continue;
+    const current = ratingByFile.get(entity.filePath);
+    ratingByFile.set(entity.filePath, higherRisk(current, risk.safetyRating));
+  }
+
+  const counts: RiskMix = { red: 0, yellow: 0, green: 0 };
+  for (const rating of ratingByFile.values()) counts[rating] += 1;
+  return counts;
+}
+
+function higherRisk(
+  a: "red" | "yellow" | "green" | undefined,
+  b: "red" | "yellow" | "green",
+): "red" | "yellow" | "green" {
+  if (!a) return b;
+  const order = { red: 3, yellow: 2, green: 1 };
+  return order[b] > order[a] ? b : a;
+}
+
+function findRuntimeHints(rootDir: string, filePaths: string[], changedEntities: Entity[]): string[] {
   const hints: string[] = [];
   for (const filePath of filePaths) {
     if (/(^|\/)(routes?|middleware|handlers?|controllers?|workers?|jobs?|queues?|cron)(\/|\.|$)/i.test(filePath)) {
@@ -695,6 +820,39 @@ function readEntityLines(rootDir: string, entity: Entity): string[] | null {
   } catch {
     return null;
   }
+}
+
+function buildShapeMovements(input: {
+  affectedFileCount: number;
+  changedFileCount: number;
+  boundaryCrossings: string[];
+  implicitFile?: string;
+  testConfidence: TestConfidence;
+  runtimeHints: string[];
+  invariantHints: string[];
+}): string[] {
+  const movements: string[] = [];
+
+  if (input.affectedFileCount > input.changedFileCount) {
+    movements.push("ripple widened beyond changed files");
+  }
+  if (input.boundaryCrossings.length > 0) {
+    movements.push(`crossed package boundary: ${input.boundaryCrossings[0]}`);
+  }
+  if (input.implicitFile) {
+    movements.push(`implicit coupling surfaced: ${input.implicitFile}`);
+  }
+  if (input.testConfidence === "WEAK" || input.testConfidence === "PARTIAL") {
+    movements.push("weak tests in affected zone");
+  }
+  if (input.runtimeHints.length > 0) {
+    movements.push("runtime/data/config area touched");
+  }
+  if (input.invariantHints.length > 0) {
+    movements.push(`invariant hint: ${input.invariantHints[0]}`);
+  }
+
+  return movements.slice(0, 3);
 }
 
 function computeShapeAttention(
