@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { analyze, writeSvFile } from "./analyze";
+import { buildFlowNeighborhood } from "./flow";
 import path from "path";
 import fs from "fs";
 
@@ -23,6 +24,17 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/data") {
       return new Response(JSON.stringify(doc), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.pathname === "/api/flow") {
+      const entityId = url.searchParams.get("entityId");
+      if (!entityId) return new Response("Missing entityId", { status: 400 });
+
+      const depth = parseInt(url.searchParams.get("depth") ?? "1", 10);
+      const flow = buildFlowNeighborhood(doc, entityId, { depth: Number.isFinite(depth) ? depth : 1 });
+      return new Response(JSON.stringify(flow), {
         headers: { "Content-Type": "application/json" },
       });
     }
