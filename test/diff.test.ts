@@ -176,6 +176,16 @@ describe("analyzeDiff", () => {
     expect(result.shapeDelta.testRecommendations).toEqual(expect.arrayContaining(["a.test.ts", "c.test.ts"]));
   });
 
+  test("changed test files count even when extractor found no test entities", () => {
+    const result = analyzeDiff(makeMinimalDoc(), [
+      { filePath: "src/cli.ts", status: "modified" },
+      { filePath: "test/cli.test.ts", status: "added" },
+    ]);
+
+    expect(result.shapeDelta.testConfidence).toBe("STRONG");
+    expect(result.shapeDelta.testRecommendations).toEqual(["test/cli.test.ts"]);
+  });
+
   test("test confidence remains unknown when no likely guard tests are known", () => {
     const noLikelyTestsDoc = makeMinimalDoc({
       entities: [makeEntity("src/feature.ts:run:1", "src/feature.ts", 1, 10)],

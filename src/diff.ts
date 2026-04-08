@@ -589,8 +589,9 @@ function addLikelyTestFiles(
   reason: string,
   confidence: number,
 ) {
+  const knownFiles = new Set([...doc.entities.map(e => e.filePath), ...changedPaths]);
   for (const candidate of likelyTestCandidates(sourcePath)) {
-    const exists = doc.entities.some(e => e.filePath === candidate);
+    const exists = knownFiles.has(candidate);
     if (!exists || changedPaths.has(candidate)) continue;
 
     const existing = missedTests.find(m => m.filePath === candidate);
@@ -790,7 +791,7 @@ function computeTestPlan(
     return { confidence: "UNKNOWN", recommendations: [], uncoveredRipple: [] };
   }
 
-  const knownFiles = new Set(doc.entities.map(e => e.filePath));
+  const knownFiles = new Set([...doc.entities.map(e => e.filePath), ...changedPaths]);
   const likelyTests = new Set<string>();
   const uncoveredRipple: string[] = [];
   for (const sourcePath of sourceFiles) {
