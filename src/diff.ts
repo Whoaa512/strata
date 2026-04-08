@@ -32,6 +32,7 @@ export interface ShapeSummary {
   changedPackages: string[];
   affectedPackages: string[];
   hiddenCouplings: string[];
+  uncoveredRipple: string[];
   testConfidence: TestConfidence;
   invariantHints: string[];
   runtimeHints: string[];
@@ -45,6 +46,7 @@ export interface ShapeDelta {
   attention: "GREEN" | "YELLOW" | "RED";
   testConfidence: TestConfidence;
   testRecommendations: string[];
+  uncoveredRipple: string[];
   boundaryCrossings: string[];
   invariantHints: string[];
   affectedDirs: string[];
@@ -706,6 +708,7 @@ function buildShapeDelta(
     changedPackages,
     affectedPackages,
     hiddenCouplings,
+    uncoveredRipple: testPlan.uncoveredRipple,
     testConfidence: testPlan.confidence,
     invariantHints,
     runtimeHints,
@@ -719,6 +722,7 @@ function buildShapeDelta(
     attention,
     testConfidence: testPlan.confidence,
     testRecommendations: testPlan.recommendations,
+    uncoveredRipple: testPlan.uncoveredRipple,
     boundaryCrossings,
     invariantHints,
     affectedDirs,
@@ -773,6 +777,7 @@ function findTopRippleDir(
 interface TestPlan {
   confidence: TestConfidence;
   recommendations: string[];
+  uncoveredRipple: string[];
 }
 
 function computeTestPlan(
@@ -782,19 +787,20 @@ function computeTestPlan(
 ): TestPlan {
   const sourceFiles = Array.from(affectedFiles).filter(path => !isTestFile(path));
   if (!sourceFiles.some(path => changedPaths.has(path))) {
-    return { confidence: "UNKNOWN", recommendations: [] };
+    return { confidence: "UNKNOWN", recommendations: [], uncoveredRipple: [] };
   }
 
   const knownFiles = new Set(doc.entities.map(e => e.filePath));
   const likelyTests = new Set<string>();
+  const uncoveredRipple: string[] = [];
   for (const sourcePath of sourceFiles) {
-    for (const candidate of likelyTestCandidates(sourcePath)) {
-      if (knownFiles.has(candidate)) likelyTests.add(candidate);
-    }
+    const knownLikelyTests = likelyTestCandidates(sourcePath).filter(candidate => knownFiles.has(candidate));
+    for (const candidate of knownLikelyTests) likelyTests.add(candidate);
+    if (!changedPaths.has(sourcePath) && knownLikelyTests.length === 0) uncoveredRipple.push(sourcePath);
   }
 
   if (likelyTests.size === 0) {
-    return { confidence: "UNKNOWN", recommendations: [] };
+    return { confidence: "UNKNOWN", recommendations: [], uncoveredRipple: uncoveredRipple.sort().slice(0, 5) };
   }
 
   const changedLikelyTests = Array.from(likelyTests).filter(path => changedPaths.has(path)).sort();
@@ -802,12 +808,12 @@ function computeTestPlan(
   const recommendations = missingLikelyTests.length > 0 ? missingLikelyTests : changedLikelyTests;
 
   if (missingLikelyTests.length === 0 && changedLikelyTests.length > 0) {
-    return { confidence: "STRONG", recommendations };
+    return { confidence: "STRONG", recommendations, uncoveredRipple: uncoveredRipple.sort().slice(0, 5) };
   }
   if (changedLikelyTests.length > 0) {
-    return { confidence: "PARTIAL", recommendations };
+    return { confidence: "PARTIAL", recommendations, uncoveredRipple: uncoveredRipple.sort().slice(0, 5) };
   }
-  return { confidence: "WEAK", recommendations };
+  return { confidence: "WEAK", recommendations, uncoveredRipple: uncoveredRipple.sort().slice(0, 5) };
 }
 
 function findPackages(files: Set<string>, pkgByFile: Map<string, string> | null): string[] {

@@ -54,6 +54,9 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   if (analysis.shapeDelta.testRecommendations.length > 0) {
     lines.push(`    Consider running/updating likely guard tests: ${analysis.shapeDelta.testRecommendations.join(", ")}`);
   }
+  if (analysis.shapeDelta.uncoveredRipple.length > 0) {
+    lines.push(`    Affected files with no likely guard test: ${analysis.shapeDelta.uncoveredRipple.join(", ")}`);
+  }
   if (analysis.shapeDelta.boundaryCrossings.length > 0) {
     lines.push(`    Boundary crossings: ${analysis.shapeDelta.boundaryCrossings.join(", ")}`);
   }

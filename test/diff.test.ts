@@ -186,6 +186,26 @@ describe("analyzeDiff", () => {
     expect(result.shapeDelta.testRecommendations).toEqual([]);
   });
 
+  test("lists affected ripple files with no likely guard tests", () => {
+    const entities: Entity[] = [
+      makeEntity("src/auth.ts:validate:1", "src/auth.ts", 1, 10),
+      makeEntity("src/session.ts:getSession:1", "src/session.ts", 1, 10),
+      makeEntity("src/audit.ts:recordAudit:1", "src/audit.ts", 1, 10),
+      makeEntity("src/session.test.ts:testSession:1", "src/session.test.ts", 1, 10),
+    ];
+    const rippleDoc = makeMinimalDoc({
+      entities,
+      changeRipple: [
+        { entityId: "src/auth.ts:validate:1", rippleScore: 3, staticDeps: ["src/session.ts"], temporalDeps: ["src/audit.ts"], implicitCouplings: [], affectedFiles: ["src/session.ts", "src/audit.ts"] },
+      ],
+    });
+
+    const result = analyzeDiff(rippleDoc, [{ filePath: "src/auth.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.uncoveredRipple).toContain("src/audit.ts");
+    expect(result.shapeDelta.uncoveredRipple).not.toContain("src/session.ts");
+  });
+
   test("flags likely tests for affected ripple zone", () => {
     const diff: DiffFile[] = [{ filePath: "a.ts", status: "modified" }];
     const result = analyzeDiff(doc, diff);

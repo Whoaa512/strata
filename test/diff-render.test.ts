@@ -23,6 +23,7 @@ describe("renderDiffAnalysis", () => {
         attention: "YELLOW",
         testConfidence: "PARTIAL",
         testRecommendations: ["test/auth.test.ts"],
+        uncoveredRipple: ["src/session.ts"],
         boundaryCrossings: ["src -> test"],
         invariantHints: [],
         affectedDirs: ["src", "test"],
@@ -42,6 +43,7 @@ describe("renderDiffAnalysis", () => {
           changedPackages: ["src"],
           affectedPackages: ["src", "test"],
           hiddenCouplings: [],
+          uncoveredRipple: ["src/session.ts"],
           testConfidence: "PARTIAL",
           invariantHints: [],
           runtimeHints: ["runtime path hint: src/auth.ts"],
@@ -55,6 +57,7 @@ describe("renderDiffAnalysis", () => {
 
     expect(output).toContain("Test confidence: PARTIAL");
     expect(output).toContain("Consider running/updating likely guard tests: test/auth.test.ts");
+    expect(output).toContain("Affected files with no likely guard test: src/session.ts");
     expect(output).toContain("Boundary crossings: src -> test");
     expect(output).toContain("Changed packages: src");
     expect(output).toContain("Affected packages: src, test");
