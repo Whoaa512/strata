@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { analyze, writeSvFile } from "./analyze";
 import { buildFlowNeighborhood } from "./flow";
+import { buildCodebaseShape } from "./shape";
 import path from "path";
 import fs from "fs";
 
@@ -35,6 +36,12 @@ const server = Bun.serve({
       const depth = parseInt(url.searchParams.get("depth") ?? "1", 10);
       const flow = buildFlowNeighborhood(doc, entityId, { depth: Number.isFinite(depth) ? depth : 1 });
       return new Response(JSON.stringify(flow), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.pathname === "/api/shape") {
+      return new Response(JSON.stringify(buildCodebaseShape(doc)), {
         headers: { "Content-Type": "application/json" },
       });
     }
