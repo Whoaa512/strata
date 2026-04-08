@@ -5,7 +5,7 @@ import { renderBrief, renderFileBrief } from "./brief";
 import { getDiffFiles, getDiffHunks, analyzeDiff } from "./diff";
 import { renderDiffAnalysis } from "./diff-render";
 import path from "path";
-import { existsSync, statSync } from "fs";
+import { resolveBriefArgs } from "./cli-args";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -75,15 +75,7 @@ if (command === "diff") {
 }
 
 if (command === "brief") {
-  const firstArg = args[1];
-  let briefTarget = firstArg ?? ".";
-  let briefFile = args[2];
-
-  if (firstArg && !briefFile && existsSync(firstArg) && statSync(firstArg).isFile()) {
-    briefTarget = ".";
-    briefFile = firstArg;
-  }
-
+  const { briefTarget, briefFile } = resolveBriefArgs(args.slice(1));
   const rootDir = path.resolve(briefTarget);
   console.log(`Analyzing ${rootDir}...`);
   const doc = analyze(rootDir);

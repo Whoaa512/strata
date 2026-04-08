@@ -1,18 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import path from "path";
+import { resolveBriefArgs } from "../src/cli-args";
 
 const rootDir = path.resolve(import.meta.dir, "..");
 
-describe("cli", () => {
-  test("brief accepts a file path without explicit root", () => {
-    const proc = Bun.spawnSync(["bun", "src/cli.ts", "brief", "src/diff.ts"], {
-      cwd: rootDir,
-      stdout: "pipe",
-      stderr: "pipe",
+describe("resolveBriefArgs", () => {
+  test("treats a single file argument as file brief under cwd", () => {
+    expect(resolveBriefArgs(["src/diff.ts"], rootDir)).toEqual({
+      briefTarget: ".",
+      briefFile: "src/diff.ts",
     });
+  });
 
-    expect(proc.exitCode).toBe(0);
-    expect(proc.stdout.toString()).toContain("STRATA BRIEFING");
-    expect(proc.stdout.toString()).toContain("src/diff.ts");
+  test("keeps explicit root plus file", () => {
+    expect(resolveBriefArgs([".", "src/diff.ts"], rootDir)).toEqual({
+      briefTarget: ".",
+      briefFile: "src/diff.ts",
+    });
   });
 });

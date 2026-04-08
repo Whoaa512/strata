@@ -166,7 +166,9 @@ export function renderBrief(doc: StrataDoc, taskDescription?: string): string {
 
 export function renderFileBrief(doc: StrataDoc, targetFile: string): string {
   const lines: string[] = [];
-  const entities = doc.entities.filter(e => e.filePath === targetFile);
+  const entities = doc.entities
+    .filter(e => e.filePath === targetFile)
+    .sort((a, b) => a.startLine - b.startLine);
   const riskByEntity = new Map(doc.agentRisk.map(r => [r.entityId, r]));
   const rippleByEntity = new Map(doc.changeRipple.map(r => [r.entityId, r]));
 
@@ -174,39 +176,55 @@ export function renderFileBrief(doc: StrataDoc, targetFile: string): string {
     return `  No entities found in ${targetFile}`;
   }
 
+  const risks = entities.map(e => riskByEntity.get(e.id)).filter((r): r is AgentRisk => Boolean(r));
+  const ripples = entities.map(e => rippleByEntity.get(e.id)).filter((r): r is ChangeRipple => Boolean(r));
+  const worstRating = risks.reduce<"green" | "yellow" | "red">(
+    (worst, risk) => ratingOrder(risk.safetyRating) < ratingOrder(worst) ? risk.safetyRating : worst,
+    "green",
+  );
+  const maxContext = risks.reduce((max, risk) => Math.max(max, risk.contextCost), 0);
+  const affectedFiles = [...new Set(ripples.flatMap(r => r.affectedFiles))].sort();
+  const riskFactors = [...new Set(risks.flatMap(r => r.riskFactors))];
+  const implicitCouplings = [...new Map(
+    ripples
+      .flatMap(r => r.implicitCouplings)
+      .sort((a, b) => b.cochangeRate - a.cochangeRate)
+      .map(ic => [ic.filePath, ic]),
+  ).values()];
+
   lines.push("");
   lines.push(`${BOLD}${MAGENTA}  STRATA BRIEFING${RESET} ${DIM}— ${targetFile}${RESET}`);
   lines.push(`${DIM}  ${"━".repeat(50)}${RESET}`);
   lines.push("");
+  lines.push(`  ${ATT_ICON[worstRating]} ${BOLD}${WHITE}Summary${RESET} ${ATT_LABEL[worstRating]} ${DIM}· ${entities.length} entities · context: ~${formatTokens(maxContext)} · ripple: ${affectedFiles.length} files${RESET}`);
+
+  for (const factor of riskFactors.slice(0, 5)) {
+    lines.push(`    ${YELLOW}⚠ ${factor}${RESET}`);
+  }
+
+  if (affectedFiles.length > 0) {
+    lines.push(`    ${DIM}ripple → ${affectedFiles.slice(0, 8).join(", ")}${affectedFiles.length > 8 ? ` +${affectedFiles.length - 8} more` : ""}${RESET}`);
+  }
+
+  for (const ic of implicitCouplings.slice(0, 5)) {
+    lines.push(`    ${YELLOW}⚠ implicit coupling: ${ic.filePath} (${Math.round(ic.cochangeRate * 100)}% co-change)${RESET}`);
+  }
+
+  lines.push("");
+  lines.push(`${BOLD}${WHITE}  Entities${RESET}`);
 
   for (const entity of entities) {
     const risk = riskByEntity.get(entity.id);
     const ripple = rippleByEntity.get(entity.id);
     const icon = risk ? ATT_ICON[risk.safetyRating] : "·";
     const label = risk ? ATT_LABEL[risk.safetyRating] : "";
+    const context = risk ? ` · ~${formatTokens(risk.contextCost)}` : "";
+    const rippleCount = ripple ? ` · ripple ${ripple.affectedFiles.length} files` : "";
 
-    lines.push(`  ${icon} ${BOLD}${CYAN}${entity.name}${RESET} ${DIM}L${entity.startLine}-${entity.endLine} · ${entity.kind}${RESET} ${label}`);
-
-    if (risk) {
-      lines.push(`    ${DIM}context cost: ~${formatTokens(risk.contextCost)}${RESET}`);
-      for (const factor of risk.riskFactors) {
-        lines.push(`    ${YELLOW}⚠ ${factor}${RESET}`);
-      }
-    }
-
-    if (ripple && ripple.affectedFiles.length > 0) {
-      lines.push(`    ${DIM}ripple → ${ripple.affectedFiles.join(", ")}${RESET}`);
-    }
-
-    if (ripple && ripple.implicitCouplings.length > 0) {
-      for (const ic of ripple.implicitCouplings) {
-        lines.push(`    ${YELLOW}⚠ implicit coupling: ${ic.filePath} (${Math.round(ic.cochangeRate * 100)}% co-change)${RESET}`);
-      }
-    }
-
-    lines.push("");
+    lines.push(`    ${icon} ${BOLD}${CYAN}${entity.name}${RESET} ${DIM}L${entity.startLine}-${entity.endLine} · ${entity.kind}${context}${rippleCount}${RESET} ${label}`);
   }
 
+  lines.push("");
   return lines.join("\n");
 }
 
