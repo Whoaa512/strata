@@ -28,6 +28,16 @@ function testConfidenceColor(confidence: DiffAnalysis["shapeDelta"]["testConfide
   return DIM;
 }
 
+function isDangerousDataKind(kind: string): boolean {
+  return kind === "db-write" || kind === "publish" || kind === "http-call";
+}
+
+function renderDataImpact(lines: string[], di: DiffAnalysis["shapeDelta"]["dataImpacts"][number]) {
+  const dangerIcon = isDangerousDataKind(di.kind) ? `${RED}●${RESET}` : `${YELLOW}○${RESET}`;
+  lines.push(`    ${dangerIcon} ${di.kind} → ${di.target}  ${confBar(di.confidence)}`);
+  lines.push(`      ${DIM}entity: ${di.entityId} · ${di.evidence}${RESET}`);
+}
+
 function changedEntitySummary(analysis: DiffAnalysis, filePath: string): string | null {
   const names = analysis.changedEntities
     .filter(e => e.filePath === filePath)
@@ -84,6 +94,17 @@ export function renderDiffAnalysis(analysis: DiffAnalysis, diffSpec: string): st
   if (analysis.shapeDelta.why.length > 0) {
     lines.push(`    ${BOLD}Why:${RESET}`);
     for (const why of analysis.shapeDelta.why) lines.push(`    - ${why}`);
+    lines.push("");
+  }
+
+  if (analysis.shapeDelta.runtimeImpacts.length > 0 || analysis.shapeDelta.dataImpacts.length > 0) {
+    lines.push(`    ${BOLD}Runtime/data impacts:${RESET}`);
+    for (const ri of analysis.shapeDelta.runtimeImpacts) {
+      const label = ri.method && ri.route ? `${ri.method} ${ri.route}` : ri.entrypointId;
+      lines.push(`    ${RED}⚡${RESET} ${ri.kind} ${label}  ${confBar(ri.confidence)}`);
+      lines.push(`      ${DIM}${ri.evidence}${RESET}`);
+    }
+    for (const di of analysis.shapeDelta.dataImpacts) renderDataImpact(lines, di);
     lines.push("");
   }
 

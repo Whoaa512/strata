@@ -36,6 +36,8 @@ describe("renderDiffAnalysis", () => {
         why: ["test confidence partial: affected ripple tests still need review"],
         likelyMissed: [],
         reviewFocus: ["Add/update tests covering affected ripple zone"],
+        runtimeImpacts: [],
+        dataImpacts: [],
         summary: {
           changedFiles: ["src/auth.ts"],
           affectedFiles: ["src/auth.ts", "test/auth.test.ts"],
@@ -67,5 +69,119 @@ describe("renderDiffAnalysis", () => {
     expect(output).toContain("ripple widened beyond changed files");
     expect(output).toContain("runtime path hint: src/auth.ts");
     expect(output).toContain("src/auth.ts: validateToken, refreshSession");
+  });
+
+  test("renders runtime and data impacts when present", () => {
+    const analysis: DiffAnalysis = {
+      changedFiles: [{ filePath: "src/order.ts", status: "modified" }],
+      changedEntities: [],
+      missedFiles: [],
+      missedTests: [],
+      affectedCallers: [],
+      shapeDelta: {
+        changedFileCount: 1,
+        affectedFileCount: 1,
+        attention: "YELLOW",
+        testConfidence: "UNKNOWN",
+        testRecommendations: [],
+        uncoveredRipple: [],
+        boundaryCrossings: [],
+        invariantHints: [],
+        affectedDirs: ["src"],
+        runtimeHints: [],
+        changedPackages: [],
+        affectedPackages: [],
+        changedRisk: { red: 0, yellow: 0, green: 0 },
+        affectedRisk: { red: 0, yellow: 0, green: 0 },
+        shapeMovements: ["runtime path touched: POST /api/orders"],
+        why: ["runtime path touched: 1 entrypoint affected"],
+        likelyMissed: [],
+        reviewFocus: ["Verify runtime entrypoints still behave correctly"],
+        runtimeImpacts: [
+          { kind: "http", route: "/api/orders", method: "POST", entrypointId: "ep1", confidence: 0.9, evidence: "express route" },
+        ],
+        dataImpacts: [
+          { kind: "db-write", target: "orders", entityId: "src/order.ts:create:1", confidence: 0.85, evidence: "prisma.orders.create" },
+          { kind: "publish", target: "order.created", entityId: "src/order.ts:create:1", confidence: 0.8, evidence: "emit order.created" },
+          { kind: "db-read", target: "users", entityId: "src/order.ts:create:1", confidence: 0.7, evidence: "prisma.users.findFirst" },
+        ],
+        summary: {
+          changedFiles: ["src/order.ts"],
+          affectedFiles: ["src/order.ts"],
+          affectedDirs: ["src"],
+          changedPackages: [],
+          affectedPackages: [],
+          hiddenCouplings: [],
+          uncoveredRipple: [],
+          testConfidence: "UNKNOWN",
+          invariantHints: [],
+          runtimeHints: [],
+          boundaryCrossings: [],
+          reviewFocus: ["Verify runtime entrypoints still behave correctly"],
+        },
+      },
+    };
+
+    const output = stripAnsi(renderDiffAnalysis(analysis, "HEAD~1"));
+
+    expect(output).toContain("Runtime/data impacts:");
+    expect(output).toContain("http POST /api/orders");
+    expect(output).toContain("90%");
+    expect(output).toContain("express route");
+    expect(output).toContain("db-write");
+    expect(output).toContain("orders");
+    expect(output).toContain("publish");
+    expect(output).toContain("order.created");
+    expect(output).toContain("db-read");
+    expect(output).toContain("users");
+  });
+
+  test("does not render runtime/data impacts when absent", () => {
+    const analysis: DiffAnalysis = {
+      changedFiles: [{ filePath: "src/util.ts", status: "modified" }],
+      changedEntities: [],
+      missedFiles: [],
+      missedTests: [],
+      affectedCallers: [],
+      shapeDelta: {
+        changedFileCount: 1,
+        affectedFileCount: 1,
+        attention: "GREEN",
+        testConfidence: "UNKNOWN",
+        testRecommendations: [],
+        uncoveredRipple: [],
+        boundaryCrossings: [],
+        invariantHints: [],
+        affectedDirs: ["src"],
+        runtimeHints: [],
+        changedPackages: [],
+        affectedPackages: [],
+        changedRisk: { red: 0, yellow: 0, green: 0 },
+        affectedRisk: { red: 0, yellow: 0, green: 0 },
+        shapeMovements: [],
+        why: [],
+        likelyMissed: [],
+        reviewFocus: ["Review changed files for local correctness"],
+        runtimeImpacts: [],
+        dataImpacts: [],
+        summary: {
+          changedFiles: ["src/util.ts"],
+          affectedFiles: ["src/util.ts"],
+          affectedDirs: ["src"],
+          changedPackages: [],
+          affectedPackages: [],
+          hiddenCouplings: [],
+          uncoveredRipple: [],
+          testConfidence: "UNKNOWN",
+          invariantHints: [],
+          runtimeHints: [],
+          boundaryCrossings: [],
+          reviewFocus: ["Review changed files for local correctness"],
+        },
+      },
+    };
+
+    const output = stripAnsi(renderDiffAnalysis(analysis, "HEAD~1"));
+    expect(output).not.toContain("Runtime/data impacts:");
   });
 });

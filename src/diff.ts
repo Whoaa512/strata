@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
-import type { StrataDoc, ChangeRipple, TemporalCoupling, Entity } from "./schema";
+import type { StrataDoc, ChangeRipple, TemporalCoupling, Entity, RuntimePath, DataAccess, RuntimeEntrypoint } from "./schema";
 import { getPackageBoundaries } from "./ripple";
 
 export interface DiffFile {
@@ -24,6 +24,7 @@ export interface MissedFile {
 
 type TestConfidence = "STRONG" | "PARTIAL" | "WEAK" | "UNKNOWN";
 type RiskMix = { red: number; yellow: number; green: number };
+const DANGEROUS_DATA_KINDS = new Set<DataAccess["kind"]>(["db-write", "publish", "http-call"]);
 
 export interface ShapeSummary {
   changedFiles: string[];
@@ -38,6 +39,23 @@ export interface ShapeSummary {
   runtimeHints: string[];
   boundaryCrossings: string[];
   reviewFocus: string[];
+}
+
+export interface RuntimeImpact {
+  kind: "http" | "queue" | "cron" | "event";
+  route?: string;
+  method?: string;
+  entrypointId: string;
+  confidence: number;
+  evidence: string;
+}
+
+export interface DataImpact {
+  kind: DataAccess["kind"];
+  target: string;
+  entityId: string;
+  confidence: number;
+  evidence: string;
 }
 
 export interface ShapeDelta {
@@ -59,6 +77,8 @@ export interface ShapeDelta {
   why: string[];
   likelyMissed: MissedFile[];
   reviewFocus: string[];
+  runtimeImpacts: RuntimeImpact[];
+  dataImpacts: DataImpact[];
   summary: ShapeSummary;
 }
 
@@ -684,6 +704,17 @@ function buildShapeDelta(
   });
   if (redRisk) why.push(`changed red attention area: ${redRisk.filePath}`);
 
+  const runtimeImpacts = findRuntimeImpacts(doc, changedEntityIds);
+  const dataImpacts = findDataImpacts(doc, changedEntityIds);
+
+  if (runtimeImpacts.length > 0) {
+    why.push(`runtime path touched: ${runtimeImpacts.length} entrypoint${runtimeImpacts.length > 1 ? "s" : ""} affected`);
+  }
+  const dangerousData = dataImpacts.filter(d => DANGEROUS_DATA_KINDS.has(d.kind));
+  if (dangerousData.length > 0) {
+    why.push(`data impact: ${dangerousData.map(d => `${d.kind}→${d.target}`).slice(0, 3).join(", ")}`);
+  }
+
   const shapeMovements = buildShapeMovements({
     affectedFileCount: affectedFiles.size,
     changedFileCount: changedFiles.length,
@@ -692,9 +723,11 @@ function buildShapeDelta(
     testConfidence: testPlan.confidence,
     runtimeHints,
     invariantHints,
+    runtimeImpacts,
+    dataImpacts,
   });
-  const reviewFocus = buildReviewFocus(missedFiles, missedTests, affectedCallers);
-  const attention = computeShapeAttention(affectedFiles.size, changedFiles.length, missedFiles, missedTests, affectedCallers, why);
+  const reviewFocus = buildReviewFocus(missedFiles, missedTests, affectedCallers, runtimeImpacts, dataImpacts);
+  const attention = computeShapeAttention(affectedFiles.size, changedFiles.length, missedFiles, missedTests, affectedCallers, why, runtimeImpacts, dataImpacts);
   const likelyMissed = [...missedFiles, ...missedTests]
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, 5);
@@ -736,6 +769,8 @@ function buildShapeDelta(
     why: why.slice(0, 5),
     likelyMissed,
     reviewFocus,
+    runtimeImpacts,
+    dataImpacts,
     summary,
   };
 }
@@ -1024,6 +1059,8 @@ function buildShapeMovements(input: {
   testConfidence: TestConfidence;
   runtimeHints: string[];
   invariantHints: string[];
+  runtimeImpacts: RuntimeImpact[];
+  dataImpacts: DataImpact[];
 }): string[] {
   const movements: string[] = [];
 
@@ -1039,14 +1076,23 @@ function buildShapeMovements(input: {
   if (input.testConfidence === "WEAK" || input.testConfidence === "PARTIAL") {
     movements.push("weak tests in affected zone");
   }
-  if (input.runtimeHints.length > 0) {
+  if (input.runtimeImpacts.length > 0) {
+    const ep = input.runtimeImpacts[0];
+    const label = ep.method && ep.route ? `${ep.method} ${ep.route}` : ep.entrypointId;
+    movements.push(`runtime path touched: ${label}`);
+  }
+  if (input.dataImpacts.some(d => DANGEROUS_DATA_KINDS.has(d.kind))) {
+    const dangerous = input.dataImpacts.filter(d => DANGEROUS_DATA_KINDS.has(d.kind));
+    movements.push(`data side-effect: ${dangerous[0].kind}\u2192${dangerous[0].target}`);
+  }
+  if (input.runtimeHints.length > 0 && input.runtimeImpacts.length === 0) {
     movements.push("runtime/data/config area touched");
   }
   if (input.invariantHints.length > 0) {
     movements.push(`invariant hint: ${input.invariantHints[0]}`);
   }
 
-  return movements.slice(0, 3);
+  return movements.slice(0, 4);
 }
 
 function computeShapeAttention(
@@ -1056,14 +1102,22 @@ function computeShapeAttention(
   missedTests: MissedFile[],
   affectedCallers: DiffAnalysis["affectedCallers"],
   why: string[],
+  runtimeImpacts: RuntimeImpact[] = [],
+  dataImpacts: DataImpact[] = [],
 ): ShapeDelta["attention"] {
   const highConfidenceMiss = missedFiles.some(m => m.confidence >= 0.7);
   const expanded = affectedFileCount > Math.max(2, changedFileCount * 2);
+  const weakOrPartialTests = why.some(w => w.includes("test confidence weak") || w.includes("test confidence partial"));
   const weakTests = why.some(w => w.includes("test confidence weak"));
   const implicit = why.some(w => w.includes("implicit coupling"));
+  const dangerousData = dataImpacts.some(d => DANGEROUS_DATA_KINDS.has(d.kind));
+  const runtimeTouchedWithWeakTests = runtimeImpacts.length > 0 && weakOrPartialTests;
 
   if (highConfidenceMiss || (expanded && (weakTests || implicit)) || missedTests.length >= 3) return "RED";
+  if (dangerousData && weakOrPartialTests) return "RED";
+  if (runtimeTouchedWithWeakTests) return "RED";
   if (missedFiles.length > 0 || missedTests.length > 0 || affectedCallers.length > 0 || expanded) return "YELLOW";
+  if (runtimeImpacts.length > 0 || dangerousData) return "YELLOW";
   return "GREEN";
 }
 
@@ -1071,6 +1125,8 @@ function buildReviewFocus(
   missedFiles: MissedFile[],
   missedTests: MissedFile[],
   affectedCallers: DiffAnalysis["affectedCallers"],
+  runtimeImpacts: RuntimeImpact[] = [],
+  dataImpacts: DataImpact[] = [],
 ): string[] {
   const focus: string[] = [];
   if (affectedCallers.length > 0) focus.push("Check callers in blast zone");
@@ -1079,8 +1135,12 @@ function buildReviewFocus(
   }
   if (missedFiles.length > 0) focus.push("Check sibling/parallel implementations near likely missed files");
   if (missedTests.length > 0) focus.push("Add/update tests covering affected ripple zone");
+  if (runtimeImpacts.length > 0) focus.push("Verify runtime entrypoints still behave correctly");
+  if (dataImpacts.some(d => d.kind === "db-write" || d.kind === "publish")) {
+    focus.push("Audit data writes and event publishes for correctness");
+  }
   if (focus.length === 0) focus.push("Review changed files for local correctness");
-  return focus.slice(0, 4);
+  return focus.slice(0, 5);
 }
 
 function findAffectedCallers(
@@ -1123,4 +1183,65 @@ function boostMultiSignalFiles(missed: Map<string, MissedFile>) {
 
 function isTestFile(path: string): boolean {
   return /\.(test|spec)\.|__tests__|\/test\//.test(path);
+}
+
+function findRuntimeImpacts(
+  doc: StrataDoc,
+  changedEntityIds: Set<string>,
+): RuntimeImpact[] {
+  const runtimePaths = doc.runtimePaths;
+  if (!runtimePaths || runtimePaths.length === 0) return [];
+
+  const entrypointById = new Map<string, RuntimeEntrypoint>();
+  for (const ep of doc.runtimeEntrypoints ?? []) {
+    const id = ep.id ?? ep.entityId;
+    if (id) entrypointById.set(id, ep);
+  }
+
+  const impacts: RuntimeImpact[] = [];
+  const seen = new Set<string>();
+
+  for (const rp of runtimePaths) {
+    const touchedEntity = changedEntityIds.has(rp.entrypointId) || rp.reachableEntities.some(id => changedEntityIds.has(id));
+    if (!touchedEntity) continue;
+    if (seen.has(rp.entrypointId)) continue;
+    seen.add(rp.entrypointId);
+
+    const ep = entrypointById.get(rp.entrypointId);
+    impacts.push({
+      kind: rp.kind,
+      route: rp.route ?? ep?.route,
+      method: rp.method ?? ep?.method,
+      entrypointId: rp.entrypointId,
+      confidence: ep?.confidence ?? 0.7,
+      evidence: ep?.evidence ?? `reachable via runtime path (depth ${rp.depth})`,
+    });
+  }
+
+  return impacts.slice(0, 10);
+}
+
+function findDataImpacts(
+  doc: StrataDoc,
+  changedEntityIds: Set<string>,
+): DataImpact[] {
+  const dataAccesses = doc.dataAccesses;
+  if (!dataAccesses || dataAccesses.length === 0) return [];
+
+  const impacts: DataImpact[] = [];
+
+  for (const da of dataAccesses) {
+    if (!changedEntityIds.has(da.entityId)) continue;
+    impacts.push({
+      kind: da.kind,
+      target: da.target,
+      entityId: da.entityId,
+      confidence: da.confidence,
+      evidence: da.evidence,
+    });
+  }
+
+  return impacts
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 10);
 }

@@ -336,7 +336,7 @@ describe("analyzeDiff", () => {
       expect(result.shapeDelta.affectedRisk.yellow).toBe(1);
       expect(result.shapeDelta.shapeMovements).toContain("ripple widened beyond changed files");
       expect(result.shapeDelta.shapeMovements).toContain("crossed package boundary: packages/a -> packages/b");
-      expect(result.shapeDelta.shapeMovements.length).toBeLessThanOrEqual(3);
+      expect(result.shapeDelta.shapeMovements.length).toBeLessThanOrEqual(4);
       expect(result.shapeDelta.summary.hiddenCouplings).toContain("packages/b/src/affected.ts");
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
@@ -1012,5 +1012,292 @@ describe("cross-package dampening in diff", () => {
       expect(true).toBe(true);
     }
     cleanupPkgDirs();
+  });
+});
+
+describe("runtime/data impact integration", () => {
+  test("changed entity in runtime path produces runtime impact", () => {
+    const entities: Entity[] = [
+      makeEntity("src/handler.ts:handleOrder:1", "src/handler.ts", 1, 20),
+      makeEntity("src/service.ts:createOrder:1", "src/service.ts", 1, 30),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      runtimeEntrypoints: [
+        { id: "ep-orders", kind: "http", route: "/api/orders", method: "POST", confidence: 0.9, evidence: "express route" },
+      ],
+      runtimePaths: [
+        { entrypointId: "ep-orders", kind: "http", route: "/api/orders", method: "POST", reachableEntities: ["src/handler.ts:handleOrder:1", "src/service.ts:createOrder:1"], dataAccesses: [], depth: 2 },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/service.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.runtimeImpacts.length).toBe(1);
+    expect(result.shapeDelta.runtimeImpacts[0].kind).toBe("http");
+    expect(result.shapeDelta.runtimeImpacts[0].route).toBe("/api/orders");
+    expect(result.shapeDelta.runtimeImpacts[0].method).toBe("POST");
+    expect(result.shapeDelta.runtimeImpacts[0].entrypointId).toBe("ep-orders");
+    expect(result.shapeDelta.runtimeImpacts[0].confidence).toBe(0.9);
+    expect(result.shapeDelta.why.some(w => w.includes("runtime path touched"))).toBe(true);
+    expect(result.shapeDelta.shapeMovements.some(m => m.includes("runtime path touched"))).toBe(true);
+  });
+
+  test("changed entrypoint handler itself produces runtime impact", () => {
+    const entities: Entity[] = [
+      makeEntity("src/handler.ts:handleOrder:1", "src/handler.ts", 1, 20),
+      makeEntity("src/service.ts:createOrder:1", "src/service.ts", 1, 30),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      runtimeEntrypoints: [
+        { id: "src/handler.ts:handleOrder:1", entityId: "src/handler.ts:handleOrder:1", kind: "http", route: "/api/orders", method: "POST", confidence: 0.9, evidence: "express route" },
+      ],
+      runtimePaths: [
+        { entrypointId: "src/handler.ts:handleOrder:1", kind: "http", route: "/api/orders", method: "POST", reachableEntities: ["src/service.ts:createOrder:1"], dataAccesses: [], depth: 1 },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/handler.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.runtimeImpacts.length).toBe(1);
+    expect(result.shapeDelta.runtimeImpacts[0].route).toBe("/api/orders");
+  });
+
+  test("changed entity with data access produces data impact", () => {
+    const entities: Entity[] = [
+      makeEntity("src/repo.ts:saveUser:1", "src/repo.ts", 1, 15),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      dataAccesses: [
+        { entityId: "src/repo.ts:saveUser:1", kind: "db-write", target: "users", confidence: 0.85, evidence: "prisma.users.create" },
+        { entityId: "src/repo.ts:saveUser:1", kind: "publish", target: "user.created", confidence: 0.8, evidence: "emit user.created" },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/repo.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.dataImpacts.length).toBe(2);
+    expect(result.shapeDelta.dataImpacts[0].kind).toBe("db-write");
+    expect(result.shapeDelta.dataImpacts[0].target).toBe("users");
+    expect(result.shapeDelta.dataImpacts[1].kind).toBe("publish");
+    expect(result.shapeDelta.why.some(w => w.includes("data impact"))).toBe(true);
+    expect(result.shapeDelta.reviewFocus).toContain("Audit data writes and event publishes for correctness");
+  });
+
+  test("unchanged entity does not produce runtime or data impact", () => {
+    const entities: Entity[] = [
+      makeEntity("src/handler.ts:handleOrder:1", "src/handler.ts", 1, 20),
+      makeEntity("src/other.ts:unrelated:1", "src/other.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      runtimePaths: [
+        { entrypointId: "ep-orders", kind: "http", route: "/api/orders", method: "POST", reachableEntities: ["src/handler.ts:handleOrder:1"], dataAccesses: [], depth: 1 },
+      ],
+      runtimeEntrypoints: [
+        { id: "ep-orders", kind: "http", route: "/api/orders", method: "POST", confidence: 0.9, evidence: "express" },
+      ],
+      dataAccesses: [
+        { entityId: "src/handler.ts:handleOrder:1", kind: "db-write", target: "orders", confidence: 0.9, evidence: "prisma" },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/other.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.runtimeImpacts).toEqual([]);
+    expect(result.shapeDelta.dataImpacts).toEqual([]);
+  });
+
+  test("backward compatible when runtime fields absent", () => {
+    const doc = makeMinimalDoc({
+      entities: [makeEntity("src/foo.ts:foo:1", "src/foo.ts", 1, 10)],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/foo.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.runtimeImpacts).toEqual([]);
+    expect(result.shapeDelta.dataImpacts).toEqual([]);
+    expect(result.shapeDelta.attention).toBe("GREEN");
+  });
+
+  test("db-write with weak tests bumps attention to RED", () => {
+    const entities: Entity[] = [
+      makeEntity("src/repo.ts:saveUser:1", "src/repo.ts", 1, 15),
+      makeEntity("src/repo.test.ts:testSave:1", "src/repo.test.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      dataAccesses: [
+        { entityId: "src/repo.ts:saveUser:1", kind: "db-write", target: "users", confidence: 0.9, evidence: "prisma" },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/repo.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.dataImpacts.length).toBe(1);
+    expect(result.shapeDelta.testConfidence).toBe("WEAK");
+    expect(result.shapeDelta.attention).toBe("RED");
+  });
+
+  test("dangerous data with partial tests bumps attention to RED", () => {
+    const entities: Entity[] = [
+      makeEntity("src/repo.ts:save:1", "src/repo.ts", 1, 20),
+      makeEntity("src/service.ts:run:1", "src/service.ts", 1, 15),
+      makeEntity("src/repo.test.ts:testRepo:1", "src/repo.test.ts", 1, 10),
+      makeEntity("src/service.test.ts:testService:1", "src/service.test.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      dataAccesses: [
+        { entityId: "src/repo.ts:save:1", kind: "db-write", target: "orders", confidence: 0.9, evidence: "insert" },
+      ],
+      changeRipple: [
+        { entityId: "src/repo.ts:save:1", rippleScore: 2, staticDeps: ["src/service.ts"], temporalDeps: [], implicitCouplings: [], affectedFiles: ["src/service.ts"] },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [
+      { filePath: "src/repo.ts", status: "modified" },
+      { filePath: "src/repo.test.ts", status: "modified" },
+    ]);
+
+    expect(result.shapeDelta.testConfidence).toBe("PARTIAL");
+    expect(result.shapeDelta.attention).toBe("RED");
+  });
+
+  test("runtime path touched with partial tests bumps attention to RED", () => {
+    const entities: Entity[] = [
+      makeEntity("src/handler.ts:handle:1", "src/handler.ts", 1, 20),
+      makeEntity("src/service.ts:process:1", "src/service.ts", 1, 15),
+      makeEntity("src/handler.test.ts:testHandler:1", "src/handler.test.ts", 1, 10),
+      makeEntity("src/service.test.ts:testService:1", "src/service.test.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      runtimeEntrypoints: [
+        { id: "ep1", kind: "http", route: "/api/do", method: "GET", confidence: 0.9, evidence: "express" },
+      ],
+      runtimePaths: [
+        { entrypointId: "ep1", kind: "http", route: "/api/do", method: "GET", reachableEntities: ["src/handler.ts:handle:1", "src/service.ts:process:1"], dataAccesses: [], depth: 2 },
+      ],
+      changeRipple: [
+        { entityId: "src/handler.ts:handle:1", rippleScore: 2, staticDeps: ["src/service.ts"], temporalDeps: [], implicitCouplings: [], affectedFiles: ["src/service.ts"] },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [
+      { filePath: "src/handler.ts", status: "modified" },
+      { filePath: "src/handler.test.ts", status: "modified" },
+    ]);
+
+    expect(result.shapeDelta.runtimeImpacts.length).toBe(1);
+    expect(result.shapeDelta.testConfidence).toBe("PARTIAL");
+    expect(result.shapeDelta.attention).toBe("RED");
+  });
+
+  test("multiple runtime paths produce multiple impacts", () => {
+    const entities: Entity[] = [
+      makeEntity("src/shared.ts:validate:1", "src/shared.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      runtimeEntrypoints: [
+        { id: "ep1", kind: "http", route: "/api/a", method: "GET", confidence: 0.9, evidence: "express" },
+        { id: "ep2", kind: "queue", route: "job-queue", confidence: 0.8, evidence: "bull worker" },
+      ],
+      runtimePaths: [
+        { entrypointId: "ep1", kind: "http", route: "/api/a", method: "GET", reachableEntities: ["src/shared.ts:validate:1"], dataAccesses: [], depth: 1 },
+        { entrypointId: "ep2", kind: "queue", route: "job-queue", reachableEntities: ["src/shared.ts:validate:1"], dataAccesses: [], depth: 1 },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/shared.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.runtimeImpacts.length).toBe(2);
+    expect(result.shapeDelta.runtimeImpacts.map(r => r.kind)).toContain("http");
+    expect(result.shapeDelta.runtimeImpacts.map(r => r.kind)).toContain("queue");
+  });
+
+  test("runtime impact uses entrypoint metadata when available", () => {
+    const entities: Entity[] = [
+      makeEntity("src/handler.ts:fn:1", "src/handler.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      runtimeEntrypoints: [
+        { id: "ep1", kind: "http", route: "/api/test", method: "PUT", confidence: 0.95, evidence: "decorator @Put" },
+      ],
+      runtimePaths: [
+        { entrypointId: "ep1", kind: "http", reachableEntities: ["src/handler.ts:fn:1"], dataAccesses: [], depth: 1 },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/handler.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.runtimeImpacts[0].route).toBe("/api/test");
+    expect(result.shapeDelta.runtimeImpacts[0].method).toBe("PUT");
+    expect(result.shapeDelta.runtimeImpacts[0].confidence).toBe(0.95);
+    expect(result.shapeDelta.runtimeImpacts[0].evidence).toBe("decorator @Put");
+  });
+
+  test("data impacts sorted by confidence descending", () => {
+    const entities: Entity[] = [
+      makeEntity("src/repo.ts:fn:1", "src/repo.ts", 1, 20),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      dataAccesses: [
+        { entityId: "src/repo.ts:fn:1", kind: "db-read", target: "low", confidence: 0.5, evidence: "query" },
+        { entityId: "src/repo.ts:fn:1", kind: "db-write", target: "high", confidence: 0.95, evidence: "insert" },
+        { entityId: "src/repo.ts:fn:1", kind: "cache-read", target: "mid", confidence: 0.7, evidence: "redis.get" },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/repo.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.dataImpacts[0].confidence).toBeGreaterThanOrEqual(result.shapeDelta.dataImpacts[1].confidence);
+    expect(result.shapeDelta.dataImpacts[1].confidence).toBeGreaterThanOrEqual(result.shapeDelta.dataImpacts[2].confidence);
+  });
+
+  test("shape movement shows data side-effect for http-call", () => {
+    const entities: Entity[] = [
+      makeEntity("src/client.ts:callExternal:1", "src/client.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      dataAccesses: [
+        { entityId: "src/client.ts:callExternal:1", kind: "http-call", target: "https://api.stripe.com/charge", confidence: 0.85, evidence: "fetch call" },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/client.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.shapeMovements.some(m => m.includes("data side-effect"))).toBe(true);
+    expect(result.shapeDelta.shapeMovements.some(m => m.includes("http-call"))).toBe(true);
+  });
+
+  test("review focus includes runtime and data audit items", () => {
+    const entities: Entity[] = [
+      makeEntity("src/handler.ts:fn:1", "src/handler.ts", 1, 10),
+    ];
+    const doc = makeMinimalDoc({
+      entities,
+      runtimeEntrypoints: [
+        { id: "ep1", kind: "http", route: "/api/x", method: "GET", confidence: 0.9, evidence: "express" },
+      ],
+      runtimePaths: [
+        { entrypointId: "ep1", kind: "http", route: "/api/x", method: "GET", reachableEntities: ["src/handler.ts:fn:1"], dataAccesses: [], depth: 1 },
+      ],
+      dataAccesses: [
+        { entityId: "src/handler.ts:fn:1", kind: "db-write", target: "events", confidence: 0.9, evidence: "insert" },
+      ],
+    });
+
+    const result = analyzeDiff(doc, [{ filePath: "src/handler.ts", status: "modified" }]);
+
+    expect(result.shapeDelta.reviewFocus).toContain("Verify runtime entrypoints still behave correctly");
+    expect(result.shapeDelta.reviewFocus).toContain("Audit data writes and event publishes for correctness");
   });
 });
