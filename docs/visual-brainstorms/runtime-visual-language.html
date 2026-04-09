@@ -1,0 +1,1250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Strata — Runtime Visual Language</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0f;
+  --bg2: #11111a;
+  --bg3: #1a1a2a;
+  --border: #2a2a3a;
+  --text: #e0e0e0;
+  --muted: #888;
+  --dim: #555;
+  --accent: #8b5cf6;
+  --cyan: #06b6d4;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --green: #22c55e;
+  --blue: #3b82f6;
+  --rose: #f43f5e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+code, .mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; }
+.section {
+  min-height: 100vh;
+  padding: 80px 40px;
+  position: relative;
+  border-bottom: 1px solid var(--border);
+}
+.section-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.section-num {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.section-title {
+  font-size: clamp(32px, 5vw, 56px);
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+.section-subtitle {
+  font-size: 18px;
+  color: var(--muted);
+  margin-bottom: 40px;
+}
+.viz-container {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 32px;
+  min-height: 400px;
+  position: relative;
+  overflow: hidden;
+}
+.viz-container svg { width: 100%; display: block; }
+.explanation {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 32px;
+}
+.explanation-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.explanation-card h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.explanation-card p { color: var(--muted); font-size: 14px; }
+
+/* Hero */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 40px;
+  position: relative;
+}
+.hero-title {
+  font-size: clamp(40px, 7vw, 80px);
+  font-weight: 800;
+  letter-spacing: -2px;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--accent), var(--cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 16px;
+}
+.hero-sub {
+  font-size: 20px;
+  color: var(--muted);
+  max-width: 600px;
+  margin-bottom: 40px;
+}
+.hero-badge {
+  display: inline-block;
+  padding: 6px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+/* Nav dots */
+#nav-dots {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nav-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  cursor: pointer;
+  transition: all 0.3s;
+  position: relative;
+}
+.nav-dot:hover, .nav-dot.active {
+  background: var(--accent);
+  transform: scale(1.4);
+}
+.nav-dot .dot-label {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.nav-dot:hover .dot-label { opacity: 1; }
+
+/* Buttons/controls */
+.toggle-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.toggle-btn:hover { border-color: var(--dim); color: var(--text); }
+.toggle-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.controls { display: flex; gap: 8px; margin-bottom: 16px; }
+
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.slider-container label { font-size: 12px; color: var(--muted); min-width: 100px; }
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  flex: 1;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .section { padding: 40px 20px; }
+  .explanation { grid-template-columns: 1fr; }
+  #nav-dots { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Nav Dots -->
+<div id="nav-dots"></div>
+
+<!-- Hero -->
+<section class="hero" id="s-hero">
+  <div class="hero-badge">Design Research</div>
+  <h1 class="hero-title">Runtime Visual Language</h1>
+  <p class="hero-sub">9 visual metaphors for seeing what code actually does — not just what it says.</p>
+  <p style="color: var(--dim); font-size: 14px;">Built for Strata · Scroll to explore ↓</p>
+</section>
+
+<!-- 1. Request River -->
+<section class="section" id="s-river">
+  <div class="section-inner">
+    <p class="section-num">01 · Request Path</p>
+    <h2 class="section-title">Request River</h2>
+    <p class="section-subtitle">A river system where the main channel is the happy path, tributaries are middleware, and eddies are async ops.</p>
+    <div class="viz-container" id="viz-river"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>Rivers encode volume (width), speed (particle velocity), branching (tributaries), and danger (rapids) — all of which map to request behavior. Unlike subway maps, rivers show dynamics, not just topology.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>Each river segment maps to entities in the call graph. Blast radius = how far upstream the river goes. RuntimeEntrypoint + RuntimePath schemas provide the data backbone.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. Fluid Dynamics -->
+<section class="section" id="s-fluid">
+  <div class="section-inner">
+    <p class="section-num">02 · Data Flow</p>
+    <h2 class="section-title">Fluid Dynamics</h2>
+    <p class="section-subtitle">A chemical process diagram where data is fluid — pipes, valves, vessels, and pressure gauges.</p>
+    <div class="viz-container" id="viz-fluid"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>Chemical process diagrams solve exactly this problem in physical engineering: tracking fluid through transformations, storage, and distribution. Color shifts at serialization boundaries make the invisible visible.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>DataAccess schema tracks db-read/write, cache operations. Pipe colors shift at each boundary. Agents changing a field see ALL places that field exists in different forms.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Broadcast & Echo -->
+<section class="section" id="s-broadcast">
+  <div class="section-inner">
+    <p class="section-num">03 · Async & Events</p>
+    <h2 class="section-title">Broadcast & Echo</h2>
+    <p class="section-subtitle">Radio towers and receivers. Events are signals; listeners light up when reached. No return path.</p>
+    <div class="viz-container" id="viz-broadcast"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>The fundamental problem with async events: there's no return arrow. A radio tower doesn't know its listeners. The broadcast metaphor captures fire-and-forget asymmetry perfectly.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>RuntimeEntrypoint already has kind: "event" | "queue" | "cron". The broadcast shows "this emit reaches THESE 7 listeners, and you changed zero of them."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Thermal Overlay -->
+<section class="section" id="s-thermal">
+  <div class="section-inner">
+    <p class="section-num">04 · Hot Paths</p>
+    <h2 class="section-title">Thermal Overlay</h2>
+    <p class="section-subtitle">Infrared camera on code. Hot paths glow white, cold paths vanish into darkness.</p>
+    <div class="controls">
+      <button class="toggle-btn active" onclick="setThermalMode('frequency', this)">Frequency Heat</button>
+      <button class="toggle-btn" onclick="setThermalMode('latency', this)">Latency Heat</button>
+    </div>
+    <div class="viz-container" id="viz-thermal"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>Thermal cameras are universally understood. Hot = important/active. Cold = dormant. Two heat maps that disagree (frequency vs latency) reveal the functions agents will optimize incorrectly.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>Hotspot data (complexity × churn) already exists. Layer thermal coloring on the circle-packing explorer. With production traces, switch from proxy heat to real heat.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. Mutation Zones -->
+<section class="section" id="s-mutation">
+  <div class="section-inner">
+    <p class="section-num">05 · State Danger</p>
+    <h2 class="section-title">Mutation Zones</h2>
+    <p class="section-subtitle">Hazmat containment zones. State mutations are hazardous material with blast radius.</p>
+    <div class="viz-container" id="viz-mutation"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>Hazmat zones are viscerally understood: stay out unless you know what you're doing. The concentric rings communicate "closeness to danger" — code near a mutation inherits its risk.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>DataAccess already classifies db-write, cache-write, cache-delete. Layer danger zones on the explorer. Agents see "you're in a red zone — here's everything affected."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Shadow Infrastructure -->
+<section class="section" id="s-shadow">
+  <div class="section-inner">
+    <p class="section-num">06 · Production Gap</p>
+    <h2 class="section-title">Shadow Infrastructure</h2>
+    <p class="section-subtitle">Ghost layer revealing hidden production infra behind innocent-looking code.</p>
+    <div class="slider-container">
+      <label class="mono">Code View</label>
+      <input type="range" id="shadow-slider" min="0" max="100" value="0" oninput="updateShadow(this.value)">
+      <label class="mono">Production View</label>
+    </div>
+    <div class="viz-container" id="viz-shadow"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>The production gap is literally invisible in code. Feature flags, env vars, migrations, deploy configs — all haunt your code from the shadows. The slider makes the gap tangible.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>DataAccess tracks env and feature-flag access. The shadow layer is literally "here's everything the agent can't see." A brief says: "4 shadow dependencies: flag, migration, env var, deploy config."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. Contamination Paths -->
+<section class="section" id="s-contamination">
+  <div class="section-inner">
+    <p class="section-num">07 · PII & Security</p>
+    <h2 class="section-title">Contamination Paths</h2>
+    <p class="section-subtitle">Radioactive tracking. Sensitive data leaves a glowing trail. Sanitization is decontamination.</p>
+    <div class="viz-container" id="viz-contamination"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>Radioactive contamination is the perfect analog for PII: invisible, spreads through contact, requires deliberate decontamination, leaks are catastrophic. Contamination is cumulative and sticky.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>Layered on RuntimePath reachable entities. Agents that add console.log(user) see the contamination warning: "this variable is radioactive — do not log."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. Portal Network -->
+<section class="section" id="s-portal">
+  <div class="section-inner">
+    <p class="section-num">08 · Serialization</p>
+    <h2 class="section-title">Portal Network</h2>
+    <p class="section-subtitle">Gateways between realms where data changes form. Each format is a distinct visual realm.</p>
+    <div class="viz-container" id="viz-portal"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>Serialization is where more bugs live than anyone admits. The portal metaphor makes each boundary crossing VISIBLE. Field diff at each portal reveals data loss and type mismatches.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>DataAccess tracks access kinds. Agents adding fields to DTOs see "you changed Object realm but didn't update the portal to DB realm — new field will be silently dropped."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Reality Overlay -->
+<section class="section" id="s-reality">
+  <div class="section-inner">
+    <p class="section-num">09 · Static vs Runtime</p>
+    <h2 class="section-title">Reality Overlay</h2>
+    <p class="section-subtitle">AR overlay showing runtime truth on static code. Toggle between what code says and what actually runs.</p>
+    <div class="controls">
+      <button class="toggle-btn active" onclick="setRealityMode('static', this)">Code Says</button>
+      <button class="toggle-btn" onclick="setRealityMode('runtime', this)">Runtime Does</button>
+    </div>
+    <div class="viz-container" id="viz-reality"></div>
+    <div class="explanation">
+      <div class="explanation-card">
+        <h3>Why This Metaphor</h3>
+        <p>The morph animation itself is the information. When you toggle static→runtime and watch half your code ghost away, you viscerally understand the gap between editor and production.</p>
+      </div>
+      <div class="explanation-card">
+        <h3>Strata Integration</h3>
+        <p>The ultimate agent safety tool. "60% of what you're reading doesn't run in production. Here's the 40% that matters." Prevents agents from optimizing dead code.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Closing -->
+<section class="hero" id="s-closing" style="min-height: 60vh;">
+  <h2 style="font-size: 32px; font-weight: 800; margin-bottom: 16px;">The Gap Is The Story</h2>
+  <p class="hero-sub" style="font-size: 16px;">Every visualization shows a gap — between code and runtime, visible and hidden, safe and dangerous. Strata makes gaps tangible so humans can steer agents through them.</p>
+  <p style="color: var(--dim); font-size: 13px; margin-top: 24px;" class="mono">strata · runtime visual language · design research</p>
+</section>
+
+<script>
+const sections = [
+  { id: 's-hero', label: 'Intro' },
+  { id: 's-river', label: '01 River' },
+  { id: 's-fluid', label: '02 Fluid' },
+  { id: 's-broadcast', label: '03 Broadcast' },
+  { id: 's-thermal', label: '04 Thermal' },
+  { id: 's-mutation', label: '05 Mutation' },
+  { id: 's-shadow', label: '06 Shadow' },
+  { id: 's-contamination', label: '07 Contamination' },
+  { id: 's-portal', label: '08 Portal' },
+  { id: 's-reality', label: '09 Reality' },
+  { id: 's-closing', label: 'End' },
+];
+
+// Nav dots
+const dotsContainer = document.getElementById('nav-dots');
+sections.forEach(s => {
+  const dot = document.createElement('div');
+  dot.className = 'nav-dot';
+  dot.dataset.section = s.id;
+  dot.innerHTML = `<span class="dot-label">${s.label}</span>`;
+  dot.onclick = () => document.getElementById(s.id).scrollIntoView({ behavior: 'smooth' });
+  dotsContainer.appendChild(dot);
+});
+
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      document.querySelectorAll('.nav-dot').forEach(d => d.classList.toggle('active', d.dataset.section === e.target.id));
+    }
+  });
+}, { threshold: 0.3 });
+sections.forEach(s => observer.observe(document.getElementById(s.id)));
+
+// ============================================
+// 1. REQUEST RIVER
+// ============================================
+(function() {
+  const container = document.getElementById('viz-river');
+  const w = 1050, h = 400;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+
+  const defs = svg.append('defs');
+  const grad = defs.append('linearGradient').attr('id', 'river-grad').attr('x1', '0%').attr('x2', '100%');
+  grad.append('stop').attr('offset', '0%').attr('stop-color', '#3b82f6');
+  grad.append('stop').attr('offset', '30%').attr('stop-color', '#22c55e');
+  grad.append('stop').attr('offset', '60%').attr('stop-color', '#f59e0b');
+  grad.append('stop').attr('offset', '90%').attr('stop-color', '#ef4444');
+
+  const glow = defs.append('filter').attr('id', 'river-glow');
+  glow.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
+  glow.append('feMerge').selectAll('feMergeNode').data(['blur', 'SourceGraphic']).join('feMergeNode').attr('in', d => d);
+
+  const nodes = [
+    { x: 50, y: 200, label: 'HTTP', color: '#3b82f6', w: 30 },
+    { x: 180, y: 200, label: 'Auth MW', color: '#3b82f6', w: 25 },
+    { x: 310, y: 200, label: 'Rate Limit', color: '#3b82f6', w: 22 },
+    { x: 440, y: 200, label: 'Handler', color: '#22c55e', w: 28 },
+    { x: 580, y: 200, label: 'Service', color: '#22c55e', w: 26 },
+    { x: 720, y: 200, label: 'DB Query', color: '#f59e0b', w: 24 },
+    { x: 860, y: 200, label: 'Response', color: '#06b6d4', w: 20 },
+    { x: 440, y: 310, label: 'Event Emit', color: '#8b5cf6', w: 12 },
+    { x: 720, y: 90, label: 'Cache', color: '#06b6d4', w: 14 },
+    { x: 180, y: 100, label: 'Error: 401', color: '#ef4444', w: 10 },
+  ];
+
+  const links = [
+    [0,1],[1,2],[2,3],[3,4],[4,5],[5,6],
+    [3,7],[5,8],[1,9]
+  ];
+
+  links.forEach(([si, ti]) => {
+    const s = nodes[si], t = nodes[ti];
+    const isAsync = ti >= 7;
+    const midX = (s.x + t.x) / 2;
+    const midY = (s.y + t.y) / 2 + (isAsync ? (ti === 9 ? -20 : 15) : (Math.random() - 0.5) * 10);
+    const path = `M${s.x},${s.y} Q${midX},${midY} ${t.x},${t.y}`;
+    const lineW = isAsync ? 3 : Math.min(s.w, t.w) * 0.4;
+    svg.append('path')
+      .attr('d', path).attr('fill', 'none')
+      .attr('stroke', isAsync ? '#8b5cf650' : s.color + '30')
+      .attr('stroke-width', lineW + 8)
+      .attr('stroke-linecap', 'round');
+    svg.append('path')
+      .attr('d', path).attr('fill', 'none')
+      .attr('stroke', isAsync ? '#8b5cf6' : s.color)
+      .attr('stroke-width', lineW)
+      .attr('stroke-dasharray', isAsync ? '6,6' : 'none')
+      .attr('stroke-linecap', 'round')
+      .attr('opacity', isAsync ? 0.6 : 0.8)
+      .attr('filter', 'url(#river-glow)');
+  });
+
+  nodes.forEach(n => {
+    svg.append('circle')
+      .attr('cx', n.x).attr('cy', n.y).attr('r', n.w * 0.6)
+      .attr('fill', n.color + '20').attr('stroke', n.color).attr('stroke-width', 2);
+    svg.append('text')
+      .attr('x', n.x).attr('y', n.y + n.w * 0.6 + 16)
+      .attr('text-anchor', 'middle').attr('fill', n.color)
+      .attr('font-size', '11px').attr('font-family', "'SF Mono','Fira Code',monospace")
+      .text(n.label);
+  });
+
+  // Particles
+  function animateParticle(linkIdx) {
+    const [si, ti] = links[linkIdx];
+    const s = nodes[si], t = nodes[ti];
+    const isAsync = ti >= 7;
+    const particle = svg.append('circle')
+      .attr('cx', s.x).attr('cy', s.y)
+      .attr('r', isAsync ? 2 : 3)
+      .attr('fill', s.color).attr('opacity', 0.9)
+      .attr('filter', 'url(#river-glow)');
+    const dur = 1000 + Math.random() * 1500;
+    particle.transition().duration(dur).ease(d3.easeLinear)
+      .attr('cx', t.x).attr('cy', t.y).attr('opacity', 0)
+      .remove();
+  }
+  setInterval(() => {
+    const idx = Math.floor(Math.random() * links.length);
+    if (Math.random() < 0.7 || idx < 6) animateParticle(idx);
+  }, 300);
+})();
+
+// ============================================
+// 2. FLUID DYNAMICS
+// ============================================
+(function() {
+  const container = document.getElementById('viz-fluid');
+  const w = 1050, h = 400;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+
+  const defs = svg.append('defs');
+  const glow = defs.append('filter').attr('id', 'fluid-glow');
+  glow.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'blur');
+  glow.append('feMerge').selectAll('feMergeNode').data(['blur', 'SourceGraphic']).join('feMergeNode').attr('in', d => d);
+
+  const stages = [
+    { x: 60, y: 200, label: 'JSON Input', color: '#3b82f6', type: 'pipe' },
+    { x: 210, y: 200, label: 'Validate', color: '#22c55e', type: 'valve' },
+    { x: 360, y: 200, label: 'Object', color: '#22c55e', type: 'vessel' },
+    { x: 510, y: 140, label: 'DB Write', color: '#f59e0b', type: 'vessel' },
+    { x: 510, y: 280, label: 'Cache', color: '#06b6d4', type: 'vessel' },
+    { x: 680, y: 200, label: 'Transform', color: '#8b5cf6', type: 'valve' },
+    { x: 850, y: 200, label: 'JSON Out', color: '#3b82f6', type: 'pipe' },
+  ];
+
+  const pipes = [[0,1],[1,2],[2,3],[2,4],[3,5],[4,5],[5,6]];
+
+  pipes.forEach(([si, ti]) => {
+    const s = stages[si], t = stages[ti];
+    svg.append('line')
+      .attr('x1', s.x + 40).attr('y1', s.y).attr('x2', t.x - 40).attr('y2', t.y)
+      .attr('stroke', s.color + '40').attr('stroke-width', 12).attr('stroke-linecap', 'round');
+    svg.append('line')
+      .attr('x1', s.x + 40).attr('y1', s.y).attr('x2', t.x - 40).attr('y2', t.y)
+      .attr('stroke', s.color).attr('stroke-width', 4).attr('stroke-linecap', 'round')
+      .attr('filter', 'url(#fluid-glow)');
+  });
+
+  stages.forEach(s => {
+    const g = svg.append('g');
+    if (s.type === 'vessel') {
+      g.append('rect')
+        .attr('x', s.x - 35).attr('y', s.y - 30).attr('width', 70).attr('height', 60)
+        .attr('rx', 8).attr('fill', s.color + '15').attr('stroke', s.color).attr('stroke-width', 2);
+      // fill level
+      const fill = 0.3 + Math.random() * 0.6;
+      g.append('rect')
+        .attr('x', s.x - 33).attr('y', s.y - 28 + (56 * (1 - fill))).attr('width', 66).attr('height', 56 * fill)
+        .attr('rx', 6).attr('fill', s.color + '30');
+    } else if (s.type === 'valve') {
+      g.append('polygon')
+        .attr('points', `${s.x},${s.y-25} ${s.x+25},${s.y} ${s.x},${s.y+25} ${s.x-25},${s.y}`)
+        .attr('fill', s.color + '15').attr('stroke', s.color).attr('stroke-width', 2);
+    } else {
+      g.append('circle')
+        .attr('cx', s.x).attr('cy', s.y).attr('r', 20)
+        .attr('fill', s.color + '15').attr('stroke', s.color).attr('stroke-width', 2);
+    }
+    g.append('text')
+      .attr('x', s.x).attr('y', s.y + 50)
+      .attr('text-anchor', 'middle').attr('fill', s.color)
+      .attr('font-size', '11px').attr('font-family', "'SF Mono','Fira Code',monospace")
+      .text(s.label);
+  });
+
+  // Animated particles through pipes
+  function fluidParticle(pipeIdx) {
+    const [si, ti] = pipes[pipeIdx];
+    const s = stages[si], t = stages[ti];
+    const p = svg.append('circle')
+      .attr('cx', s.x + 40).attr('cy', s.y).attr('r', 3)
+      .attr('fill', s.color).attr('filter', 'url(#fluid-glow)');
+    p.transition().duration(1200 + Math.random() * 800).ease(d3.easeLinear)
+      .attr('cx', t.x - 40).attr('cy', t.y)
+      .transition().duration(200).attr('fill', t.color).attr('opacity', 0).remove();
+  }
+  setInterval(() => fluidParticle(Math.floor(Math.random() * pipes.length)), 400);
+})();
+
+// ============================================
+// 3. BROADCAST & ECHO
+// ============================================
+(function() {
+  const container = document.getElementById('viz-broadcast');
+  const w = 1050, h = 400;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+
+  const defs = svg.append('defs');
+  const glow = defs.append('filter').attr('id', 'bcast-glow');
+  glow.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
+  glow.append('feMerge').selectAll('feMergeNode').data(['blur', 'SourceGraphic']).join('feMergeNode').attr('in', d => d);
+
+  const emitter = { x: 200, y: 200 };
+  const listeners = [
+    { x: 450, y: 80, label: 'Email Service', delay: 300 },
+    { x: 500, y: 180, label: 'Analytics', delay: 500 },
+    { x: 470, y: 300, label: 'Webhook', delay: 700 },
+    { x: 380, y: 350, label: 'Audit Log', delay: 200 },
+  ];
+
+  // Cron metronome
+  const cronX = 750, cronY = 120;
+  svg.append('text').attr('x', cronX).attr('y', cronY - 30)
+    .attr('text-anchor', 'middle').attr('fill', '#f59e0b').attr('font-size', '11px')
+    .attr('font-family', "'SF Mono','Fira Code',monospace").text('CRON');
+  svg.append('circle').attr('cx', cronX).attr('cy', cronY).attr('r', 16)
+    .attr('fill', '#f59e0b15').attr('stroke', '#f59e0b').attr('stroke-width', 2);
+
+  // Queue conveyor
+  const queueY = 320;
+  svg.append('rect').attr('x', 650).attr('y', queueY - 15).attr('width', 250).attr('height', 30)
+    .attr('rx', 4).attr('fill', '#06b6d415').attr('stroke', '#06b6d4').attr('stroke-width', 1);
+  svg.append('text').attr('x', 775).attr('y', queueY + 35)
+    .attr('text-anchor', 'middle').attr('fill', '#06b6d4').attr('font-size', '11px')
+    .attr('font-family', "'SF Mono','Fira Code',monospace").text('Message Queue');
+
+  // Queue items animation
+  function queueItem() {
+    svg.append('rect')
+      .attr('x', 655).attr('y', queueY - 8).attr('width', 16).attr('height', 16)
+      .attr('rx', 3).attr('fill', '#06b6d4').attr('opacity', 0.7)
+      .transition().duration(3000).ease(d3.easeLinear)
+      .attr('x', 890).attr('opacity', 0).remove();
+  }
+  setInterval(queueItem, 1200);
+
+  // Tower
+  svg.append('polygon')
+    .attr('points', `${emitter.x},${emitter.y-35} ${emitter.x+12},${emitter.y-10} ${emitter.x-12},${emitter.y-10}`)
+    .attr('fill', '#8b5cf6');
+  svg.append('rect').attr('x', emitter.x - 3).attr('y', emitter.y - 10).attr('width', 6).attr('height', 30)
+    .attr('fill', '#8b5cf6');
+  svg.append('text').attr('x', emitter.x).attr('y', emitter.y + 40)
+    .attr('text-anchor', 'middle').attr('fill', '#8b5cf6').attr('font-size', '11px')
+    .attr('font-family', "'SF Mono','Fira Code',monospace").text('Event Emitter');
+
+  // Listeners
+  listeners.forEach(l => {
+    svg.append('circle').attr('cx', l.x).attr('cy', l.y).attr('r', 14)
+      .attr('fill', '#22c55e15').attr('stroke', '#22c55e').attr('stroke-width', 2)
+      .attr('class', 'listener-' + l.label.replace(/\s/g, ''));
+    svg.append('text').attr('x', l.x + 22).attr('y', l.y + 4)
+      .attr('fill', '#22c55e').attr('font-size', '11px')
+      .attr('font-family', "'SF Mono','Fira Code',monospace").text(l.label);
+  });
+
+  // Broadcast wave
+  function broadcastWave() {
+    const wave = svg.append('circle')
+      .attr('cx', emitter.x).attr('cy', emitter.y).attr('r', 10)
+      .attr('fill', 'none').attr('stroke', '#8b5cf6').attr('stroke-width', 2).attr('opacity', 0.8);
+    wave.transition().duration(2000).ease(d3.easeQuadOut)
+      .attr('r', 350).attr('stroke-width', 0.5).attr('opacity', 0).remove();
+
+    listeners.forEach(l => {
+      const dist = Math.sqrt((l.x - emitter.x) ** 2 + (l.y - emitter.y) ** 2);
+      setTimeout(() => {
+        svg.select('.listener-' + l.label.replace(/\s/g, ''))
+          .transition().duration(200).attr('fill', '#22c55e60')
+          .transition().duration(600).attr('fill', '#22c55e15');
+      }, dist * 3);
+    });
+  }
+  broadcastWave();
+  setInterval(broadcastWave, 3000);
+
+  // Cron pulse
+  function cronPulse() {
+    svg.append('circle').attr('cx', cronX).attr('cy', cronY).attr('r', 16)
+      .attr('fill', '#f59e0b40').attr('stroke', 'none')
+      .transition().duration(300).attr('r', 30).attr('opacity', 0).remove();
+  }
+  setInterval(cronPulse, 2000);
+})();
+
+// ============================================
+// 4. THERMAL OVERLAY
+// ============================================
+let thermalMode = 'frequency';
+const thermalData = [
+  { name: 'auth.handler', freq: 0.95, lat: 0.3, x: 0, y: 0, w: 3, h: 2 },
+  { name: 'user.service', freq: 0.8, lat: 0.5, x: 3, y: 0, w: 2, h: 2 },
+  { name: 'billing.handler', freq: 0.6, lat: 0.9, x: 5, y: 0, w: 2, h: 2 },
+  { name: 'cache.service', freq: 0.9, lat: 0.2, x: 7, y: 0, w: 2, h: 1 },
+  { name: 'admin.panel', freq: 0.05, lat: 0.1, x: 7, y: 1, w: 2, h: 1 },
+  { name: 'rate.limiter', freq: 0.95, lat: 0.15, x: 0, y: 2, w: 2, h: 2 },
+  { name: 'logger', freq: 0.99, lat: 0.05, x: 2, y: 2, w: 2, h: 1 },
+  { name: 'search.index', freq: 0.4, lat: 0.85, x: 4, y: 2, w: 3, h: 2 },
+  { name: 'migration', freq: 0.0, lat: 0.0, x: 2, y: 3, w: 2, h: 1 },
+  { name: 'webhook.out', freq: 0.3, lat: 0.7, x: 7, y: 2, w: 2, h: 2 },
+  { name: 'session.store', freq: 0.85, lat: 0.4, x: 0, y: 4, w: 3, h: 1 },
+  { name: 'config.loader', freq: 0.01, lat: 0.02, x: 3, y: 4, w: 2, h: 1 },
+  { name: 'email.sender', freq: 0.15, lat: 0.6, x: 5, y: 4, w: 2, h: 1 },
+  { name: 'metrics.export', freq: 0.7, lat: 0.1, x: 7, y: 4, w: 2, h: 1 },
+];
+
+function thermalColor(val) {
+  if (val < 0.01) return '#1a1a2a';
+  if (val < 0.2) return '#1e3a5f';
+  if (val < 0.4) return '#2563eb';
+  if (val < 0.6) return '#f59e0b';
+  if (val < 0.8) return '#f97316';
+  return '#fbbf24';
+}
+
+function renderThermal() {
+  const container = document.getElementById('viz-thermal');
+  container.innerHTML = '';
+  const w = 1050, h = 380;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+
+  const defs = svg.append('defs');
+  const glow = defs.append('filter').attr('id', 'thermal-glow');
+  glow.append('feGaussianBlur').attr('stdDeviation', '6').attr('result', 'blur');
+  glow.append('feMerge').selectAll('feMergeNode').data(['blur', 'SourceGraphic']).join('feMergeNode').attr('in', d => d);
+
+  const cellW = 100, cellH = 70, pad = 6, offX = 30, offY = 20;
+
+  thermalData.forEach(d => {
+    const val = thermalMode === 'frequency' ? d.freq : d.lat;
+    const c = thermalColor(val);
+    const g = svg.append('g');
+
+    // Glow background
+    if (val > 0.5) {
+      g.append('rect')
+        .attr('x', offX + d.x * cellW + pad - 4).attr('y', offY + d.y * cellH + pad - 4)
+        .attr('width', d.w * cellW - pad * 2 + 8).attr('height', d.h * cellH - pad * 2 + 8)
+        .attr('rx', 10).attr('fill', c).attr('opacity', 0.15).attr('filter', 'url(#thermal-glow)');
+    }
+
+    g.append('rect')
+      .attr('x', offX + d.x * cellW + pad).attr('y', offY + d.y * cellH + pad)
+      .attr('width', d.w * cellW - pad * 2).attr('height', d.h * cellH - pad * 2)
+      .attr('rx', 6).attr('fill', c + '30').attr('stroke', c).attr('stroke-width', val > 0.7 ? 2 : 1)
+      .attr('opacity', Math.max(0.3, val));
+
+    // Pulse for hot
+    if (val > 0.7) {
+      g.append('rect')
+        .attr('x', offX + d.x * cellW + pad).attr('y', offY + d.y * cellH + pad)
+        .attr('width', d.w * cellW - pad * 2).attr('height', d.h * cellH - pad * 2)
+        .attr('rx', 6).attr('fill', 'none').attr('stroke', c).attr('stroke-width', 1)
+        .attr('opacity', 0.5)
+        .append('animate').attr('attributeName', 'opacity').attr('values', '0.5;0.1;0.5')
+        .attr('dur', `${1.5 + (1 - val)}s`).attr('repeatCount', 'indefinite');
+    }
+
+    g.append('text')
+      .attr('x', offX + d.x * cellW + d.w * cellW / 2)
+      .attr('y', offY + d.y * cellH + d.h * cellH / 2 + 4)
+      .attr('text-anchor', 'middle').attr('fill', val > 0.4 ? '#fff' : '#666')
+      .attr('font-size', '10px').attr('font-family', "'SF Mono','Fira Code',monospace")
+      .attr('opacity', Math.max(0.4, val))
+      .text(d.name);
+  });
+
+  // Legend
+  const legendY = h - 25;
+  ['#1a1a2a','#1e3a5f','#2563eb','#f59e0b','#f97316','#fbbf24'].forEach((c, i) => {
+    svg.append('rect').attr('x', 30 + i * 40).attr('y', legendY).attr('width', 36).attr('height', 8)
+      .attr('rx', 2).attr('fill', c);
+  });
+  svg.append('text').attr('x', 30).attr('y', legendY - 6).attr('fill', '#666').attr('font-size', '10px')
+    .attr('font-family', "'SF Mono','Fira Code',monospace").text('cold');
+  svg.append('text').attr('x', 260).attr('y', legendY - 6).attr('fill', '#666').attr('font-size', '10px')
+    .attr('font-family', "'SF Mono','Fira Code',monospace").text('hot');
+}
+renderThermal();
+
+function setThermalMode(mode, btn) {
+  thermalMode = mode;
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderThermal();
+}
+
+// ============================================
+// 5. MUTATION ZONES
+// ============================================
+(function() {
+  const container = document.getElementById('viz-mutation');
+  const w = 1050, h = 420;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+
+  const defs = svg.append('defs');
+  // Hazard pattern
+  const pat = defs.append('pattern').attr('id', 'hazard').attr('width', 10).attr('height', 10)
+    .attr('patternUnits', 'userSpaceOnUse').attr('patternTransform', 'rotate(45)');
+  pat.append('rect').attr('width', 5).attr('height', 10).attr('fill', '#ef444420');
+
+  const zones = [
+    { x: 525, y: 210, r: 180, color: '#ef4444', label: 'DANGER ZONE', opacity: 0.06, dash: false },
+    { x: 525, y: 210, r: 120, color: '#f59e0b', label: 'WARNING', opacity: 0.08, dash: true },
+    { x: 525, y: 210, r: 60, color: '#3b82f6', label: 'SAFE', opacity: 0.1, dash: false },
+  ];
+
+  zones.forEach(z => {
+    svg.append('circle')
+      .attr('cx', z.x).attr('cy', z.y).attr('r', z.r)
+      .attr('fill', z.color + '10').attr('stroke', z.color).attr('stroke-width', 2)
+      .attr('stroke-dasharray', z.dash ? '8,4' : 'none').attr('opacity', 0.8);
+    // Pulse
+    svg.append('circle')
+      .attr('cx', z.x).attr('cy', z.y).attr('r', z.r)
+      .attr('fill', 'none').attr('stroke', z.color).attr('stroke-width', 1).attr('opacity', 0.3)
+      .append('animate').attr('attributeName', 'r').attr('values', `${z.r};${z.r + 8};${z.r}`)
+      .attr('dur', '3s').attr('repeatCount', 'indefinite');
+  });
+
+  const items = [
+    { x: 525, y: 210, label: 'Read Users', icon: '📖', color: '#3b82f6' },
+    { x: 480, y: 185, label: 'Read Config', icon: '📖', color: '#3b82f6' },
+    { x: 430, y: 230, label: 'Update Session', icon: '⚠️', color: '#f59e0b' },
+    { x: 600, y: 160, label: 'Invalidate Cache', icon: '⚠️', color: '#f59e0b' },
+    { x: 350, y: 280, label: 'DELETE Account', icon: '☢️', color: '#ef4444' },
+    { x: 680, y: 280, label: 'WRITE Billing', icon: '☢️', color: '#ef4444' },
+    { x: 380, y: 130, label: 'MODIFY Auth Token', icon: '🔒', color: '#ef4444' },
+    { x: 680, y: 120, label: 'External API', icon: '🌐', color: '#f97316' },
+  ];
+
+  items.forEach(it => {
+    const g = svg.append('g').style('cursor', 'pointer');
+    g.append('circle').attr('cx', it.x).attr('cy', it.y).attr('r', 22)
+      .attr('fill', it.color + '20').attr('stroke', it.color).attr('stroke-width', 1.5);
+    g.append('text').attr('x', it.x).attr('y', it.y + 5)
+      .attr('text-anchor', 'middle').attr('font-size', '14px').text(it.icon);
+    g.append('text').attr('x', it.x).attr('y', it.y + 38)
+      .attr('text-anchor', 'middle').attr('fill', it.color).attr('font-size', '10px')
+      .attr('font-family', "'SF Mono','Fira Code',monospace").text(it.label);
+  });
+
+  // Chain reaction arrows
+  [[4, 3], [5, 3], [6, 3]].forEach(([from, to]) => {
+    const f = items[from], t = items[to];
+    svg.append('line')
+      .attr('x1', f.x).attr('y1', f.y).attr('x2', t.x).attr('y2', t.y)
+      .attr('stroke', '#ef444430').attr('stroke-width', 1).attr('stroke-dasharray', '4,4')
+      .attr('marker-end', 'none');
+  });
+})();
+
+// ============================================
+// 6. SHADOW INFRASTRUCTURE
+// ============================================
+let shadowLevel = 0;
+function renderShadow(level) {
+  const container = document.getElementById('viz-shadow');
+  container.innerHTML = '';
+  const w = 1050, h = 400;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+  const t = level / 100;
+
+  const codeFiles = [
+    { x: 80, y: 80, label: 'auth.handler.ts' },
+    { x: 80, y: 160, label: 'user.service.ts' },
+    { x: 80, y: 240, label: 'billing.handler.ts' },
+    { x: 80, y: 320, label: 'cache.service.ts' },
+  ];
+
+  const shadowItems = [
+    { x: 600, y: 60, label: 'ENABLE_NEW_AUTH', type: 'flag', icon: '🚩', link: 0 },
+    { x: 600, y: 130, label: 'DB_POOL_SIZE=50', type: 'env', icon: '⚙️', link: 1 },
+    { x: 600, y: 200, label: 'migrate_0042.sql', type: 'migration', icon: '🔗', link: 2 },
+    { x: 600, y: 270, label: 'rollback.runbook.md', type: 'runbook', icon: '📋', link: 2 },
+    { x: 600, y: 340, label: 'REDIS_CLUSTER=3', type: 'infra', icon: '🏗️', link: 3 },
+    { x: 820, y: 95, label: 'k8s-deploy.yaml', type: 'deploy', icon: '🚀', link: 0 },
+    { x: 820, y: 235, label: 'alert: billing_p99', type: 'alert', icon: '🔔', link: 2 },
+  ];
+
+  // Code files (always visible)
+  codeFiles.forEach(f => {
+    const g = svg.append('g');
+    g.append('rect').attr('x', f.x).attr('y', f.y - 14).attr('width', 200).attr('height', 32)
+      .attr('rx', 6).attr('fill', '#1a1a2a').attr('stroke', '#2a2a3a').attr('stroke-width', 1);
+    g.append('text').attr('x', f.x + 12).attr('y', f.y + 5)
+      .attr('fill', '#e0e0e0').attr('font-size', '12px')
+      .attr('font-family', "'SF Mono','Fira Code',monospace").text(f.label);
+  });
+
+  // Shadow items and connections (fade in with slider)
+  shadowItems.forEach(si => {
+    const cf = codeFiles[si.link];
+    // Connection line
+    svg.append('line')
+      .attr('x1', cf.x + 200).attr('y1', cf.y)
+      .attr('x2', si.x - 10).attr('y2', si.y)
+      .attr('stroke', '#8b5cf6').attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,4').attr('opacity', t * 0.5);
+
+    const g = svg.append('g').attr('opacity', t);
+    g.append('rect').attr('x', si.x - 10).attr('y', si.y - 14).attr('width', 200).attr('height', 32)
+      .attr('rx', 6).attr('fill', '#8b5cf610').attr('stroke', '#8b5cf6')
+      .attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
+    g.append('text').attr('x', si.x + 6).attr('y', si.y + 5)
+      .attr('fill', '#8b5cf6').attr('font-size', '11px')
+      .attr('font-family', "'SF Mono','Fira Code',monospace")
+      .text(si.icon + ' ' + si.label);
+  });
+
+  // Count badge
+  if (t > 0.3) {
+    codeFiles.forEach((cf, i) => {
+      const count = shadowItems.filter(s => s.link === i).length;
+      if (count > 0) {
+        svg.append('circle').attr('cx', cf.x + 210).attr('cy', cf.y).attr('r', 10)
+          .attr('fill', '#8b5cf6').attr('opacity', t);
+        svg.append('text').attr('x', cf.x + 210).attr('y', cf.y + 4)
+          .attr('text-anchor', 'middle').attr('fill', '#fff').attr('font-size', '10px')
+          .attr('font-weight', '700').attr('opacity', t).text(count);
+      }
+    });
+  }
+}
+renderShadow(0);
+function updateShadow(val) { renderShadow(val); }
+
+// ============================================
+// 7. CONTAMINATION PATHS
+// ============================================
+(function() {
+  const container = document.getElementById('viz-contamination');
+  const w = 1050, h = 400;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+
+  const defs = svg.append('defs');
+  const glow = defs.append('filter').attr('id', 'toxic-glow');
+  glow.append('feGaussianBlur').attr('stdDeviation', '5').attr('result', 'blur');
+  glow.append('feMerge').selectAll('feMergeNode').data(['blur', 'SourceGraphic']).join('feMergeNode').attr('in', d => d);
+
+  const nodes = [
+    { x: 100, y: 200, label: 'User Input', clean: true },
+    { x: 250, y: 200, label: 'PII Fields', clean: false, pii: true },
+    { x: 420, y: 120, label: 'Logger', clean: false, leak: true },
+    { x: 420, y: 200, label: 'DB Store', clean: false, safe: true },
+    { x: 420, y: 300, label: 'External API', clean: false, warn: true },
+    { x: 600, y: 200, label: 'Sanitize', clean: true, decon: true },
+    { x: 780, y: 200, label: 'Response', clean: true },
+  ];
+  const links = [[0,1],[1,2],[1,3],[1,4],[1,5],[5,6]];
+
+  function nodeColor(n) {
+    if (n.leak) return '#ef4444';
+    if (n.warn) return '#f59e0b';
+    if (n.pii) return '#84cc16';
+    if (n.decon) return '#22c55e';
+    if (n.clean) return '#22c55e';
+    return '#22c55e';
+  }
+
+  links.forEach(([si, ti]) => {
+    const s = nodes[si], t = nodes[ti];
+    const contaminated = !s.clean && !s.decon;
+    const c = contaminated ? '#84cc1660' : '#22c55e30';
+    svg.append('line')
+      .attr('x1', s.x + 40).attr('y1', s.y).attr('x2', t.x - 40).attr('y2', t.y)
+      .attr('stroke', c).attr('stroke-width', contaminated ? 8 : 4)
+      .attr('stroke-linecap', 'round');
+    if (contaminated) {
+      svg.append('line')
+        .attr('x1', s.x + 40).attr('y1', s.y).attr('x2', t.x - 40).attr('y2', t.y)
+        .attr('stroke', '#84cc16').attr('stroke-width', 2)
+        .attr('stroke-linecap', 'round').attr('filter', 'url(#toxic-glow)');
+    }
+  });
+
+  nodes.forEach(n => {
+    const c = nodeColor(n);
+    const g = svg.append('g');
+    g.append('circle').attr('cx', n.x).attr('cy', n.y).attr('r', 24)
+      .attr('fill', c + '15').attr('stroke', c).attr('stroke-width', 2);
+    if (n.leak) {
+      g.append('circle').attr('cx', n.x).attr('cy', n.y).attr('r', 30)
+        .attr('fill', 'none').attr('stroke', '#ef4444').attr('stroke-width', 2).attr('opacity', 0.5)
+        .append('animate').attr('attributeName', 'r').attr('values', '30;40;30')
+        .attr('dur', '1s').attr('repeatCount', 'indefinite');
+      g.append('text').attr('x', n.x).attr('y', n.y - 38)
+        .attr('text-anchor', 'middle').attr('fill', '#ef4444').attr('font-size', '12px')
+        .attr('font-weight', '700').text('☢ LEAK!');
+    }
+    if (n.decon) {
+      g.append('rect').attr('x', n.x - 30).attr('y', n.y - 30).attr('width', 60).attr('height', 60)
+        .attr('rx', 8).attr('fill', 'none').attr('stroke', '#22c55e').attr('stroke-width', 2)
+        .attr('stroke-dasharray', '4,2');
+    }
+    if (n.warn) {
+      g.append('text').attr('x', n.x).attr('y', n.y - 34)
+        .attr('text-anchor', 'middle').attr('fill', '#f59e0b').attr('font-size', '11px')
+        .attr('font-weight', '700').text('⚠ CHECK');
+    }
+    if (n.safe) {
+      g.append('text').attr('x', n.x).attr('y', n.y - 34)
+        .attr('text-anchor', 'middle').attr('fill', '#22c55e').attr('font-size', '11px')
+        .attr('font-weight', '700').text('✓ encrypted');
+    }
+    g.append('text').attr('x', n.x).attr('y', n.y + 44)
+      .attr('text-anchor', 'middle').attr('fill', c).attr('font-size', '11px')
+      .attr('font-family', "'SF Mono','Fira Code',monospace").text(n.label);
+  });
+
+  // Toxic particles
+  function toxicParticle() {
+    const s = nodes[1];
+    const targets = [nodes[2], nodes[3], nodes[4]];
+    const t = targets[Math.floor(Math.random() * targets.length)];
+    svg.append('circle')
+      .attr('cx', s.x).attr('cy', s.y).attr('r', 2)
+      .attr('fill', '#84cc16').attr('filter', 'url(#toxic-glow)')
+      .transition().duration(800 + Math.random() * 500).ease(d3.easeLinear)
+      .attr('cx', t.x).attr('cy', t.y).attr('opacity', 0).remove();
+  }
+  setInterval(toxicParticle, 250);
+})();
+
+// ============================================
+// 8. PORTAL NETWORK
+// ============================================
+(function() {
+  const container = document.getElementById('viz-portal');
+  const w = 1050, h = 400;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+
+  const defs = svg.append('defs');
+  const glow = defs.append('filter').attr('id', 'portal-glow');
+  glow.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
+  glow.append('feMerge').selectAll('feMergeNode').data(['blur', 'SourceGraphic']).join('feMergeNode').attr('in', d => d);
+
+  const realms = [
+    { x: 30, y: 50, w: 200, h: 300, label: 'JSON Realm', color: '#3b82f6', fields: ['name: "John"', 'email: "j@…"', 'age: 25', 'metadata: {…}'] },
+    { x: 310, y: 50, w: 200, h: 300, label: 'Object Realm', color: '#22c55e', fields: ['user.name', 'user.email', 'user.age', '— metadata dropped'] },
+    { x: 590, y: 50, w: 200, h: 300, label: 'DB Realm', color: '#f59e0b', fields: ['name VARCHAR', 'email VARCHAR', 'age INTEGER', '+ created_at'] },
+    { x: 870, y: 50, w: 150, h: 300, label: 'Cache', color: '#06b6d4', fields: ['key: u:123', 'val: {name,email}', '— age dropped', 'ttl: 3600'] },
+  ];
+
+  realms.forEach(r => {
+    svg.append('rect').attr('x', r.x).attr('y', r.y).attr('width', r.w).attr('height', r.h)
+      .attr('rx', 12).attr('fill', r.color + '08').attr('stroke', r.color).attr('stroke-width', 1);
+    svg.append('text').attr('x', r.x + r.w / 2).attr('y', r.y + 24)
+      .attr('text-anchor', 'middle').attr('fill', r.color).attr('font-size', '12px')
+      .attr('font-weight', '700').attr('font-family', "'SF Mono','Fira Code',monospace").text(r.label);
+    r.fields.forEach((f, i) => {
+      const isDrop = f.startsWith('—');
+      const isAdd = f.startsWith('+');
+      const color = isDrop ? '#ef4444' : isAdd ? '#22c55e' : r.color + '99';
+      svg.append('text').attr('x', r.x + 16).attr('y', r.y + 60 + i * 28)
+        .attr('fill', color).attr('font-size', '11px')
+        .attr('font-family', "'SF Mono','Fira Code',monospace")
+        .text(f);
+    });
+  });
+
+  // Portals between realms
+  const portalPositions = [
+    { x: 245, y: 200 },
+    { x: 525, y: 200 },
+    { x: 805, y: 200 },
+  ];
+
+  portalPositions.forEach(p => {
+    const g = svg.append('g');
+    // Swirl
+    g.append('ellipse').attr('cx', p.x).attr('cy', p.y).attr('rx', 18).attr('ry', 35)
+      .attr('fill', '#8b5cf615').attr('stroke', '#8b5cf6').attr('stroke-width', 2)
+      .attr('filter', 'url(#portal-glow)');
+    g.append('text').attr('x', p.x).attr('y', p.y + 5)
+      .attr('text-anchor', 'middle').attr('fill', '#8b5cf6').attr('font-size', '16px').text('🌀');
+    // Rotating ring
+    g.append('ellipse').attr('cx', p.x).attr('cy', p.y).attr('rx', 22).attr('ry', 40)
+      .attr('fill', 'none').attr('stroke', '#8b5cf630').attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,8')
+      .append('animateTransform').attr('attributeName', 'transform').attr('type', 'rotate')
+      .attr('from', `0 ${p.x} ${p.y}`).attr('to', `360 ${p.x} ${p.y}`)
+      .attr('dur', '6s').attr('repeatCount', 'indefinite');
+  });
+
+  // Particles through portals
+  function portalParticle(idx) {
+    const r1 = realms[idx], r2 = realms[idx + 1], p = portalPositions[idx];
+    const particle = svg.append('circle')
+      .attr('cx', r1.x + r1.w).attr('cy', r1.y + 100 + Math.random() * 150)
+      .attr('r', 3).attr('fill', r1.color);
+    particle.transition().duration(600).ease(d3.easeQuadIn)
+      .attr('cx', p.x).attr('cy', p.y).attr('r', 1)
+      .transition().duration(600).ease(d3.easeQuadOut)
+      .attr('cx', r2.x).attr('cy', r2.y + 100 + Math.random() * 150)
+      .attr('r', 3).attr('fill', r2.color).attr('opacity', 0).remove();
+  }
+  setInterval(() => portalParticle(Math.floor(Math.random() * 3)), 600);
+})();
+
+// ============================================
+// 9. REALITY OVERLAY
+// ============================================
+let realityMode = 'static';
+
+function renderReality() {
+  const container = document.getElementById('viz-reality');
+  container.innerHTML = '';
+  const w = 1050, h = 420;
+  const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${w} ${h}`);
+  const isRuntime = realityMode === 'runtime';
+
+  const codeBlocks = [
+    { x: 50, y: 30, label: 'if (enableNewAuth)', type: 'flag-check', active: true },
+    { x: 100, y: 80, label: '→ newAuthFlow()', type: 'branch-a', active: true },
+    { x: 100, y: 130, label: '→ oldAuthFlow()', type: 'branch-b', active: false },
+    { x: 50, y: 200, label: 'interface AuthService', type: 'interface' },
+    { x: 100, y: 250, label: '→ OAuthServiceImpl', type: 'impl', active: true },
+    { x: 100, y: 290, label: '→ LDAPServiceImpl', type: 'impl', active: false },
+    { x: 550, y: 30, label: 'handler.process(req)', type: 'dispatch' },
+    { x: 600, y: 80, label: '→ TextHandler', type: 'target', pct: 80 },
+    { x: 600, y: 120, label: '→ ImageHandler', type: 'target', pct: 15 },
+    { x: 600, y: 160, label: '→ VideoHandler', type: 'target', pct: 5 },
+    { x: 550, y: 230, label: 'setupTelemetry()', type: 'dead' },
+    { x: 550, y: 280, label: 'legacyMigration()', type: 'dead' },
+    { x: 550, y: 330, label: 'experimentalCache()', type: 'dead' },
+  ];
+
+  codeBlocks.forEach(b => {
+    let opacity = 1;
+    let color = '#e0e0e0';
+    let bg = '#1a1a2a';
+    let border = '#2a2a3a';
+    let badge = null;
+
+    if (isRuntime) {
+      if (b.type === 'branch-b' || (b.type === 'impl' && !b.active)) {
+        opacity = 0.15;
+        color = '#555';
+        badge = { text: 'GHOSTED', color: '#ef4444' };
+      }
+      if (b.type === 'branch-a' || (b.type === 'impl' && b.active)) {
+        border = '#22c55e';
+        bg = '#22c55e10';
+        badge = { text: 'ACTIVE', color: '#22c55e' };
+      }
+      if (b.type === 'dead') {
+        opacity = 0.1;
+        color = '#333';
+        badge = { text: 'DEAD', color: '#ef4444' };
+      }
+      if (b.type === 'flag-check') {
+        badge = { text: 'FLAG=ON', color: '#f59e0b' };
+      }
+      if (b.type === 'target') {
+        border = '#8b5cf6';
+        bg = '#8b5cf610';
+      }
+    }
+
+    const g = svg.append('g').attr('opacity', opacity);
+    const textW = b.label.length * 8 + 24;
+    g.append('rect').attr('x', b.x).attr('y', b.y).attr('width', textW).attr('height', 28)
+      .attr('rx', 4).attr('fill', bg).attr('stroke', border).attr('stroke-width', 1);
+    g.append('text').attr('x', b.x + 12).attr('y', b.y + 18)
+      .attr('fill', color).attr('font-size', '12px')
+      .attr('font-family', "'SF Mono','Fira Code',monospace").text(b.label);
+
+    if (isRuntime && b.pct) {
+      const barW = b.pct * 1.5;
+      g.append('rect').attr('x', b.x + textW + 8).attr('y', b.y + 6).attr('width', barW).attr('height', 16)
+        .attr('rx', 3).attr('fill', '#8b5cf640');
+      g.append('text').attr('x', b.x + textW + barW + 14).attr('y', b.y + 19)
+        .attr('fill', '#8b5cf6').attr('font-size', '11px')
+        .attr('font-family', "'SF Mono','Fira Code',monospace").text(b.pct + '%');
+    }
+
+    if (isRuntime && badge) {
+      g.append('text').attr('x', b.x + textW + (b.pct ? b.pct * 1.5 + 50 : 10)).attr('y', b.y + 18)
+        .attr('fill', badge.color).attr('font-size', '9px').attr('font-weight', '700')
+        .attr('font-family', "'SF Mono','Fira Code',monospace").text(badge.text);
+    }
+  });
+
+  // Labels
+  svg.append('text').attr('x', 50).attr('y', h - 10)
+    .attr('fill', '#555').attr('font-size', '11px')
+    .attr('font-family', "'SF Mono','Fira Code',monospace")
+    .text(isRuntime ? '← runtime reality: what actually executes in production' : '← static view: what the code says');
+}
+renderReality();
+
+function setRealityMode(mode, btn) {
+  realityMode = mode;
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderReality();
+}
+</script>
+</body>
+</html>
