@@ -9,6 +9,7 @@ export interface ExtractionResult {
   entities: Entity[];
   callGraph: CallEdge[];
   errors: Array<{ filePath: string; error: string }>;
+  tsPrograms?: import("typescript").Program[];
 }
 
 function entityId(filePath: string, name: string, line: number): string {

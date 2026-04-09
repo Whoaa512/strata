@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import type { StrataDoc, StrataDocCompact } from "./schema";
+import type { DataAccess, RuntimeEntrypoint, RuntimePath, StrataDoc, StrataDocCompact } from "./schema";
 import { StrataDocSchema } from "./schema";
 import { extractAll } from "./multi-extract";
 import { getChurn, getTemporalCoupling, markStaticDependencies } from "./git";
@@ -8,11 +8,12 @@ import { computeHotspots } from "./hotspot";
 import { computeAllBlastRadii } from "./blast";
 import { computeChangeRipple } from "./ripple";
 import { computeAgentRisk } from "./risk";
+import { extractRuntime, composeRuntimePaths } from "./runtime-extract";
 
 export function analyze(rootDir: string): StrataDoc {
   const resolvedRoot = path.resolve(rootDir);
   const t0 = performance.now();
-  const { entities, callGraph, errors } = extractAll(resolvedRoot);
+  const { entities, callGraph, errors, tsPrograms } = extractAll(resolvedRoot);
   const t1 = performance.now();
   process.stderr.write(`  extract: ${((t1 - t0) / 1000).toFixed(2)}s (${entities.length} entities, ${callGraph.length} edges)\n`);
 
@@ -38,6 +39,22 @@ export function analyze(rootDir: string): StrataDoc {
   const t5 = performance.now();
   process.stderr.write(`  ripple+risk: ${((t5 - t4) / 1000).toFixed(2)}s\n`);
 
+  const runtimeEntrypoints: RuntimeEntrypoint[] = [];
+  const dataAccesses: DataAccess[] = [];
+  let runtimePaths: RuntimePath[] = [];
+  try {
+    for (const program of tsPrograms ?? []) {
+      const runtime = extractRuntime(program, resolvedRoot, entities);
+      runtimeEntrypoints.push(...runtime.entrypoints);
+      dataAccesses.push(...runtime.accesses);
+    }
+    runtimePaths = composeRuntimePaths(runtimeEntrypoints, dataAccesses, callGraph);
+    const t6 = performance.now();
+    process.stderr.write(`  runtime: ${((t6 - t5) / 1000).toFixed(2)}s (${runtimeEntrypoints.length} entrypoints, ${dataAccesses.length} accesses, ${runtimePaths.length} paths)\n`);
+  } catch (err) {
+    process.stderr.write(`  [runtime] extraction failed: ${err}\n`);
+  }
+
   const doc: StrataDoc = {
     version: "0.2.0",
     analyzedAt: new Date().toISOString(),
@@ -50,6 +67,9 @@ export function analyze(rootDir: string): StrataDoc {
     blastRadius,
     changeRipple,
     agentRisk,
+    runtimeEntrypoints,
+    dataAccesses,
+    runtimePaths,
     errors,
   };
 
@@ -72,6 +92,15 @@ export function toCompact(doc: StrataDoc): StrataDocCompact {
       rippleScore: cr.rippleScore,
       affectedFileCount: cr.affectedFiles.length,
       implicitCouplingCount: cr.implicitCouplings.length,
+    })),
+    runtimePaths: doc.runtimePaths?.map(rp => ({
+      entrypointId: rp.entrypointId,
+      kind: rp.kind,
+      route: rp.route,
+      method: rp.method,
+      reachableCount: rp.reachableEntities.length,
+      dataAccessCount: rp.dataAccesses.length,
+      depth: rp.depth,
     })),
   };
 }

@@ -80,11 +80,14 @@ export function extractAll(rootDir: string): ExtractionResult {
 
   const fileMap = findAllFiles(resolvedRoot);
 
+  let tsPrograms: import("typescript").Program[] = [];
+
   if (fileMap.ts.length > 0) {
     const tsResult = extractTypeScript(resolvedRoot, fileMap.ts);
     allEntities.push(...tsResult.entities);
     allCallGraph.push(...tsResult.callGraph);
     allErrors.push(...tsResult.errors);
+    tsPrograms = tsResult.tsPrograms ?? [];
   }
 
   const langFiles: Record<string, string[]> = {
@@ -101,7 +104,7 @@ export function extractAll(rootDir: string): ExtractionResult {
     allErrors.push(...result.errors);
   }
 
-  return { entities: allEntities, callGraph: allCallGraph, errors: allErrors };
+  return { entities: allEntities, callGraph: allCallGraph, errors: allErrors, tsPrograms };
 }
 
 function findTsConfigs(rootDir: string): string[] {
@@ -118,24 +121,28 @@ function extractTypeScript(rootDir: string, tsFiles: string[]): ExtractionResult
 
   if (hasRootConfig) {
     const program = createProgramFromConfig(rootConfig, rootDir);
-    return extract(program, rootDir);
+    const result = extract(program, rootDir);
+    return { ...result, tsPrograms: [program] };
   }
 
   const configs = findTsConfigs(rootDir);
 
   if (configs.length === 0) {
     const program = createLightProgram(tsFiles);
-    return extract(program, rootDir);
+    const result = extract(program, rootDir);
+    return { ...result, tsPrograms: [program] };
   }
 
   const allEntities: ExtractionResult["entities"] = [];
   const allCallGraph: ExtractionResult["callGraph"] = [];
   const allErrors: ExtractionResult["errors"] = [];
   const processedFiles = new Set<string>();
+  const tsPrograms: import("typescript").Program[] = [];
 
   for (const configPath of configs) {
     try {
       const program = createProgramFromConfig(configPath, rootDir);
+      tsPrograms.push(program);
       const result = extract(program, rootDir);
 
       for (const sf of program.getSourceFiles()) {
@@ -156,11 +163,12 @@ function extractTypeScript(rootDir: string, tsFiles: string[]): ExtractionResult
   const remainingFiles = tsFiles.filter(f => !processedFiles.has(f));
   if (remainingFiles.length > 0) {
     const program = createLightProgram(remainingFiles);
+    tsPrograms.push(program);
     const result = extract(program, rootDir);
     allEntities.push(...result.entities);
     allCallGraph.push(...result.callGraph);
     allErrors.push(...result.errors);
   }
 
-  return { entities: allEntities, callGraph: allCallGraph, errors: allErrors };
+  return { entities: allEntities, callGraph: allCallGraph, errors: allErrors, tsPrograms };
 }

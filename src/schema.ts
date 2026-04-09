@@ -77,6 +77,36 @@ export const AgentRiskSchema = z.object({
   riskFactors: z.array(z.string()),
 });
 
+export const RuntimeEntrypointSchema = z.object({
+  entityId: z.string().optional(),
+  id: z.string().optional(),
+  filePath: z.string().optional(),
+  line: z.number().int().positive().optional(),
+  kind: z.enum(["http", "queue", "cron", "event"]),
+  route: z.string().optional(),
+  method: z.string().optional(),
+  confidence: z.number().min(0).max(1),
+  evidence: z.string(),
+});
+
+export const DataAccessSchema = z.object({
+  entityId: z.string(),
+  kind: z.enum(["db-read", "db-write", "cache-read", "cache-write", "cache-delete", "publish", "env", "feature-flag", "http-call", "sql"]),
+  target: z.string(),
+  confidence: z.number().min(0).max(1),
+  evidence: z.string(),
+});
+
+export const RuntimePathSchema = z.object({
+  entrypointId: z.string(),
+  kind: z.enum(["http", "queue", "cron", "event"]),
+  route: z.string().optional(),
+  method: z.string().optional(),
+  reachableEntities: z.array(z.string()),
+  dataAccesses: z.array(DataAccessSchema),
+  depth: z.number().int().nonnegative(),
+});
+
 export const StrataDocSchema = z.object({
   version: z.literal("0.2.0"),
   analyzedAt: z.string().datetime(),
@@ -89,6 +119,9 @@ export const StrataDocSchema = z.object({
   blastRadius: z.array(BlastRadiusSchema),
   changeRipple: z.array(ChangeRippleSchema),
   agentRisk: z.array(AgentRiskSchema),
+  runtimeEntrypoints: z.array(RuntimeEntrypointSchema).optional(),
+  dataAccesses: z.array(DataAccessSchema).optional(),
+  runtimePaths: z.array(RuntimePathSchema).optional(),
   errors: z.array(FileErrorSchema),
 });
 
@@ -105,6 +138,16 @@ export const ChangeRippleCompactSchema = z.object({
   implicitCouplingCount: z.number().int().nonnegative(),
 });
 
+export const RuntimePathCompactSchema = z.object({
+  entrypointId: z.string(),
+  kind: z.enum(["http", "queue", "cron", "event"]),
+  route: z.string().optional(),
+  method: z.string().optional(),
+  reachableCount: z.number().int().nonnegative(),
+  dataAccessCount: z.number().int().nonnegative(),
+  depth: z.number().int().nonnegative(),
+});
+
 export const StrataDocCompactSchema = z.object({
   version: z.literal("0.2.0"),
   analyzedAt: z.string().datetime(),
@@ -117,6 +160,9 @@ export const StrataDocCompactSchema = z.object({
   blastRadius: z.array(BlastRadiusCompactSchema),
   changeRipple: z.array(ChangeRippleCompactSchema),
   agentRisk: z.array(AgentRiskSchema),
+  runtimeEntrypoints: z.array(RuntimeEntrypointSchema).optional(),
+  dataAccesses: z.array(DataAccessSchema).optional(),
+  runtimePaths: z.array(RuntimePathCompactSchema).optional(),
   errors: z.array(FileErrorSchema),
 });
 
@@ -130,6 +176,10 @@ export type BlastRadius = z.infer<typeof BlastRadiusSchema>;
 export type FileError = z.infer<typeof FileErrorSchema>;
 export type ChangeRipple = z.infer<typeof ChangeRippleSchema>;
 export type AgentRisk = z.infer<typeof AgentRiskSchema>;
+export type RuntimeEntrypoint = z.infer<typeof RuntimeEntrypointSchema>;
+export type DataAccess = z.infer<typeof DataAccessSchema>;
+export type RuntimePath = z.infer<typeof RuntimePathSchema>;
+export type RuntimePathCompact = z.infer<typeof RuntimePathCompactSchema>;
 export type StrataDoc = z.infer<typeof StrataDocSchema>;
 export type BlastRadiusCompact = z.infer<typeof BlastRadiusCompactSchema>;
 export type ChangeRippleCompact = z.infer<typeof ChangeRippleCompactSchema>;
