@@ -1,7 +1,0 @@
-[tasks.explore-airchat-review]
-description = "Explore airchat-review in twig2 with Strata"
-run = "bun src/cli.ts explore /Users/cj_winslow/work/twig2/projects/airchat/review/airchat_review"
-
-[tasks.brief-airchat-review]
-description = "Print Strata briefing for airchat-review in twig2"
-run = "bun src/cli.ts brief /Users/cj_winslow/work/twig2/projects/airchat/review/airchat_review"
