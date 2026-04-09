@@ -1,462 +1,679 @@
-# Visual Design Language: Code Shape & Connection Shape
+# Visual Design Language: Change Shape & Confidence Shape
 
-> Brainstorm for Strata's agentic IDE visual layer.
-> Focus: How do you make a human build intuition about code shape and connection shape in under 30 seconds?
-
----
-
-## 1. The Primary Metaphor: Geological Terrain
-
-**Why terrain wins over city blocks, circuit boards, org charts:**
-
-A codebase is a landscape that _formed over time_. It wasn't designed top-down; it accreted, eroded, and shifted through tectonic forces (reorgs, rewrites, framework migrations). Terrain is the only metaphor that carries this temporal truth intuitively.
-
-- **Mountains** = high-complexity, high-LOC code. You can see them from far away.
-- **Plains** = flat, clean plumbing. Nothing to worry about here.
-- **Canyons** = deep nesting. The walls close in; you can't see out.
-- **Rivers** = major data/call flow paths. They carve the landscape over time.
-- **Fault lines** = module boundaries, especially violated ones. Where tectonic plates (teams, packages, domains) meet.
-- **Volcanic hotspots** = high churn × high complexity. Actively dangerous. Glowing.
-- **Sedimentary layers** = git history visible in cross-section. Old code at bottom, recent at top.
-- **Erosion** = areas where code was deleted/simplified over time. Smooth, weathered shapes.
-- **Fog/clouds** = low-confidence areas. Generated code, unanalyzed files, things Strata can't see clearly.
-
-**The key insight:** Terrain has _elevation_, _texture_, _color_, _weather_, AND _geology_ — five independent visual channels you can encode simultaneously without overwhelming a viewer. A city-block metaphor gives you maybe two (height + color).
-
-### Specific encoding for Code Shape metrics:
-
-| Metric | Visual channel | Example |
-|--------|---------------|---------|
-| LOC | Area/footprint | Larger functions take up more ground |
-| Cyclomatic complexity | Elevation/height | Complex functions rise up as peaks |
-| Cognitive complexity | Surface roughness/texture | Gnarly code has craggy, fractured surface; clean code is smooth |
-| Nesting depth | Canyon depth / pit formation | Deeply nested code creates sinkholes that visually "pull down" |
-| Parameter count | Number of visible paths/roads leading in | Many params = many roads converging at one point = intersection chaos |
-| Churn | Heat/glow from below | High-churn areas have a volcanic warmth seeping through. Active. Dangerous. |
-| Generated code | Crystalline/geometric regularity | Unnaturally perfect grid patterns. Clearly machine-made vs organic. |
+> Brainstorm for Strata's agentic IDE of the future.
+> Focus: how to give humans INTUITION about change dynamics and test safety through visual bandwidth.
 
 ---
 
-## 2. Density and Complexity Encoding: The Texture Palette
+## Foundational Metaphor: The Codebase Is Terrain
 
-Text is serial. Vision is parallel. A human can distinguish:
-- ~7 million colors
-- Dozens of textures simultaneously
-- Motion vs stillness instantly (pre-attentive processing, ~200ms)
+Not a graph. Not a tree. **Terrain.** Land that has been shaped by geological forces (time, pressure, erosion, construction). You look at terrain and you *feel* which areas are stable bedrock vs shifting sand vs fresh construction vs crumbling cliff.
 
-**Don't waste this bandwidth on just "red = bad."**
+This is the right root metaphor because:
+- Terrain encodes time implicitly (strata = geological layers)
+- Terrain has material qualities you can read at a glance (rock vs mud vs glass)
+- Terrain supports overlays naturally (weather, vegetation, construction)
+- Humans have deep intuition about terrain — millions of years of evolution
 
-### The Complexity Spectrum (not a gradient — a material change):
-
-| Complexity level | Visual treatment | Physical analogy |
-|-----------------|-----------------|-----------------|
-| **Trivial** (getters, constants, config) | Glass/water — transparent, you can see through it | Looking through a window |
-| **Clean plumbing** (well-factored utilities) | Polished stone — smooth, solid, matte | River rocks |
-| **Working code** (moderate complexity, reasonable shape) | Wood grain — organic patterns, warm, readable | Crafted furniture |
-| **Gnarly** (high cyclomatic, deep nesting) | Fractured rock — jagged edges, irregular surface, cracks | Broken granite |
-| **Terrifying** (500 LOC function, 8-deep nesting, 12 params) | Obsidian with veins of lava — dark, glassy-sharp, actively hot | Volcanic glass |
-
-**Why materials, not just colors:**
-Color alone is a 1D encoding (hue along a gradient). Material/texture gives you a _gestalt feeling_ before conscious processing. You know obsidian-with-lava-veins is dangerous before you read any tooltip. This is pre-attentive — it works even in peripheral vision.
-
-### The "Shape Distortion" Signal:
-
-Clean code should look _regular_ — smooth contours, predictable shapes. As complexity increases, shapes should _distort_:
-
-- **Low complexity:** Smooth rectangle or rounded shape. Calming.
-- **Medium complexity:** Slight asymmetry. One side bulges. Organic.
-- **High complexity:** Spiky, irregular, fractal-edged. Aggressive silhouette.
-- **Extreme:** The shape _vibrates_ slightly. It's unstable. It looks like it might shatter.
-
-This uses the biological threat-detection system. Irregular, spiky shapes trigger alertness. Smooth curves feel safe. (See: Bar & Neta, 2006, "Humans prefer curved visual objects")
+Every visual choice below derives from this root.
 
 ---
 
-## 3. Connection Shape: Beyond Spaghetti
+## 1. Temporal Visualization — Geological Strata & Growth Rings
 
-### The Problem with Lines
+### The Core Idea: Visible Sediment
 
-Every graph viz tool draws lines between nodes. At 50 edges it's useful. At 500 it's spaghetti. At 5000 it's a gray blob. Codebases have thousands of connections.
+Every file/module has **visible layers** — like a cliff face showing geological strata. Each layer represents a time period of change. The visual encodes:
 
-**Lines don't scale. We need field-based representations.**
+- **Layer thickness** = volume of change in that period
+- **Layer color** = who changed it (ownership), or what kind of change (refactor vs feature vs fix)
+- **Layer regularity** = consistent cadence (healthy) vs sudden thick bands (crisis churn)
 
-### Approach A: Gravitational Fields
+### Concrete Representations
 
-Treat high-fan-in entities as **gravity wells**. They pull nearby code toward them visually.
+**A. Ring View (Tree Ring Metaphor)**
 
-- A utility function called by 200 callers doesn't show 200 lines. Instead, it sits in a visible _depression_ in the terrain, and surrounding code _leans toward it_.
-- The depth of the well = fan-in count.
-- Code that calls it is positioned closer (spatial proximity = dependency).
-- You can _see_ which code is in the gravitational influence of `authMiddleware` vs `dbConnection` without any explicit edges.
-
-**Fan-out** is the inverse: entities that call many things are positioned _high up_, on ridgelines, with many slopes flowing away from them. Controllers and orchestrators naturally sit on high ground.
-
-### Approach B: Flow Fields (for call/data paths)
-
-Instead of individual edge lines, show **vector fields** — like wind maps or ocean current visualizations.
-
-- Each pixel/region has a flow direction showing "data/calls flow this way."
-- Major call paths appear as strong currents (thick, fast-moving, high-contrast).
-- Minor connections are light breezes (thin, slow, translucent).
-- **Cycles** appear as _vortices_ — visible spinning/whirlpool patterns. Instantly recognizable. You see a cycle before you identify the specific files.
-- **Boundary crossings** are where flow passes through a visible membrane/wall. Legal crossings are smooth (flow through a gate). Illegal crossings show _resistance_ (flow bends, distorts, or bleeds through a crack).
-
-Reference: [earth.nullschool.net](https://earth.nullschool.net) — wind visualization at global scale. Millions of data points rendered as a coherent, instantly-readable field. This is the visual bandwidth we need.
-
-### Approach C: River Systems (for the primary metaphor)
-
-If terrain is the base metaphor, connections are **rivers and tributaries**:
-
-- **Main call paths** = rivers. Wide, visible from high zoom. The `request → controller → service → repository → DB` path is the Mississippi.
-- **Tributaries** = supporting call chains. Thinner. Flow into the main rivers.
-- **Underground streams** = implicit/temporal couplings. Dotted, translucent. _You can't see them on the surface_, but they're marked by surface features (subtle depressions, different vegetation).
-- **Waterfalls** = boundary crossings. Vertical drops where flow crosses a module/package boundary. Legal crossings are elegant waterfalls. Illegal crossings are cracks in a dam.
-- **Lakes** = accumulation points. Where many flows converge and pool. High fan-in. The bigger the lake, the more things depend on it.
-- **Deltas** = high fan-out. Where one entity fans into many downstream consumers. Like a river delta spreading across a plain.
-
-**Why rivers work:** Rivers have _direction_, _width_ (volume), _branching_, and _merging_ — exactly the properties of a call graph. And humans intuitively understand watersheds.
-
-### Specific Connection Shape Encodings:
-
-| Connection signal | Visual | Detail |
-|------------------|--------|--------|
-| Import graph | Terrain contiguity | Files that import each other are positioned adjacent. Import distance ≈ spatial distance. |
-| Call graph | River/flow field | Direction, width proportional to call frequency (if available) or importance |
-| Type dependency | Bedrock layers visible in cross-section | Types are geological strata _beneath_ the surface code. Shared types = shared bedrock. |
-| Inheritance | Mountain ranges sharing a ridge | Parent class is the ridge; children are peaks along it |
-| Package boundaries | Tectonic plate edges | Visible fault lines. Clear, crisp boundaries in the terrain. |
-| Cycles | Whirlpools / ouroboros | Spinning visual. Impossible to miss. The more files in the cycle, the larger the vortex. |
-| Fan-in | Gravity well / lake | Depression in terrain; surrounding code slopes toward it |
-| Fan-out | Delta / ridge / hilltop | Elevated position with many paths flowing outward |
-| Boundary violation | Crack / lava seep at fault line | Something crossing where it shouldn't. Red, hot, visible. |
-| Public API surface | Shoreline / cliff edge | The boundary between "inside" (private) and "outside" (public). Well-defined coastline = clean API. Jagged coastline = leaky abstraction. |
-| Transitive closure | Watershed | "If it rains here, everything in this watershed gets wet." Watershed boundary = blast radius boundary. |
-| Framework magic edges | Lightning / static discharge | Visible but erratic. Not following normal river paths. Arcing across the sky between distant points. |
-
----
-
-## 4. Zoom Levels: The Semantic Zoom Stack
-
-The key insight from cartography: **different information is relevant at different scales**, and the transition between scales should feel natural, not jarring.
-
-### Level 0: Biome View (Full System / 10,000 ft)
-
-**What you see:**
-- Broad terrain regions (forests, deserts, mountains, plains) representing top-level modules/packages.
-- Color/vegetation type = domain (auth is volcanic/red, payments is mineral/blue, frontend is green/forest).
-- Relative size = LOC proportional.
-- Elevation profile = complexity distribution. "That mountain range in the auth module is visible from here."
-- Major rivers only = the 5-10 primary call paths through the system.
-- Weather systems = current activity. Where are PRs happening right now? Storms over actively-changed areas. Calm skies over stable code.
-- Fog = areas with low test confidence or low analysis coverage.
-
-**What you don't see:**
-- Individual functions, files, or classes. Too small at this scale.
-- Minor connections. Only trunk rivers and major faults.
-
-**What it answers at a glance:**
-- "Where is the complexity concentrated?"
-- "What are the major subsystems and how big are they?"
-- "Where is active development happening?"
-- "Which areas are well-understood (clear skies) vs opaque (fogged)?"
-
-### Level 1: Region View (Module / Package / 1,000 ft)
-
-**What you see:**
-- Individual files as distinct terrain features (hills, valleys, rock formations).
-- File shape = code shape. The craggy spire is the 500-line utility file. The smooth plateau is the clean service layer.
-- Rivers branch into visible tributaries. You can trace call paths through this module.
-- **Temporal coupling** becomes visible: files that co-change glow with the same hue-pulse, like bioluminescence. Even if they're not spatially adjacent, you see them light up in sync.
-- Module boundary walls become visible — you can see where the "fences" are, and where things leak through.
-- Fault lines (package boundaries) show stress patterns — are they clean edges or are they crumbling?
-
-**What you don't see:**
-- Individual functions (unless they're outliers — a 400 LOC monster function is visible as a peak even at this level).
-- Individual call edges (still flow-field, not spaghetti).
-
-**What it answers:**
-- "What's the internal structure of this module?"
-- "Which files are the load-bearing walls?"
-- "Where are the boundary violations?"
-- "What co-changes with what?"
-
-### Level 2: File View (File / Feature / 100 ft)
-
-**What you see:**
-- Individual functions/methods as distinct entities with full shape encoding.
-- **Function shape is literal:** Smooth, rounded = simple. Jagged, tall, spiky = complex. Deep pit = deeply nested.
-- Internal call relationships within the file: visible paths/corridors between functions.
-- External connections: arrows/rivers flowing out of the "edges" of the visible terrain to labeled destinations (other files).
-- The **blast radius halo**: select a function and see a translucent colored overlay showing everything it can affect. Like a weather radar showing a storm's reach.
-- **Risk coloring** is now per-entity: green/yellow/red as a glow or outline. Not background — it should feel like a status indicator, not a label.
-- **Params** visible as "entry doors" on the entity shape. Many doors = many params = many ways to get in = complex interface.
-
-**What it answers:**
-- "Which function in this file is the scariest?"
-- "What does this function connect to?"
-- "How tangled are the internal relationships?"
-- "What's the blast radius of changing this?"
-
-### Level 3: Function View (Ground Level / 1 ft)
-
-**What you see:**
-- The actual code, but _augmented_.
-- **Nesting depth** visualized as physical depth — deeper nesting literally recedes (parallax effect, darker background, slightly smaller text, as if the code is further from you).
-- **Branch complexity** as path-splits. At each `if/switch`, the visual shows a fork in the road. You see how many paths exist through this function.
-- **Parameters** highlighted at the top like labeled pipes feeding in.
-- **Return points** highlighted as exit doors. Multiple early returns are multiple doors — visible scatter.
-- **Call sites** to other functions glow and have hover-targets that preview the destination.
-- Side-panel or overlay: the function's risk card (from agentRisk), blast radius, change history sparkline.
-
-**Transition animations between levels:**
-- Zooming in should feel like _descending_ — you approach a mountain, it resolves into boulders, then rocks, then crystals (entities → functions → code lines).
-- The terrain _opens up_ as you zoom in, like a cross-section revealing internal structure.
-- Reference: Google Earth zoom. The best semantic zoom UX ever built. Satellite → city → street → building. Each level loads appropriate detail.
-
----
-
-## 5. The "Ignore Safely" Signal
-
-This is perhaps the most important visual signal. Most code is fine. The IDE needs to push boring, safe code _out of attention_ so the human's eye naturally lands on what matters.
-
-### Treatment: Atmospheric Perspective
-
-In landscape painting and real terrain, distant mountains fade to blue-gray and lose detail. This is **atmospheric perspective** — things further from your focus of attention become desaturated, lower-contrast, and simpler in form.
-
-Apply this to safe, well-tested, stable code:
-
-| Safety level | Visual treatment | Metaphor |
-|-------------|-----------------|----------|
-| **Safe & boring** | Desaturated, low-contrast, simplified geometry. Smooth. Matte. Almost background. | Distant hills in fog |
-| **Safe but important** | Moderate saturation, clear shape, but no glow/pulse | Nearby hills, clear day |
-| **Needs attention** | Full color, full texture, detailed shape | Standing right in front of it |
-| **Dangerous** | Oversaturated, glowing, possibly animated | On fire |
-
-### Additional "ignore safely" signals:
-
-- **Shrinking**: Safe code can be represented at smaller scale than its LOC would normally warrant. Complexity-weighted sizing instead of raw LOC sizing. A 1000-line well-tested utility gets the footprint of a 200-line risky function.
-- **Flattening**: Safe terrain has low elevation. Even if a function has moderate complexity, if it's well-tested and stable, its visual height is _suppressed_. Only untested/high-churn complexity creates tall peaks.
-- **Translucency**: Safe modules can become partially transparent. You see through them to the interesting stuff behind/beneath.
-- **Grouping/chunking**: Multiple safe files collapse into a single labeled region (like a nature preserve on a map — "Safe Zone: /utils" with no internal detail visible until you zoom in).
-
-### The Trust Equation for Visual Weight:
+Each module rendered as a cross-section of a tree trunk. Concentric rings show change over time.
 
 ```
-visual_weight = complexity × (1 - test_confidence) × recency_of_change × (1 + implicit_coupling_count)
+Module: src/auth/
+         ╭───────────╮
+       ╭─┤           ├─╮
+     ╭─┤ │  ██core██ │ ├─╮      inner = oldest code
+   ╭─┤ │ │  ██████  │ │ ├─╮    outer = recent changes
+   │░│▓│ │  ██████  │ │▓│░│    thick outer ring = recent heavy churn
+   ╰─┤ │ │  ██████  │ │ ├─╯    thin inner rings = stable period
+     ╰─┤ │           │ ├─╯
+       ╰─┤           ├─╯
+         ╰───────────╯
+
+░ = last month (thick = lots of change)
+▓ = last quarter
+█ = > 1 year (the "heartwood")
 ```
 
-A complex function with 95% test coverage that hasn't been touched in 6 months should be visually _quiet_. A moderately complex function with 0% test coverage that changed yesterday should be _screaming_.
+**Why this works:** A module with a thin, tight set of rings reads as "mature, stable." A module with thick recent outer rings reads as "active growth area" or "under pressure." Irregular rings with gaps read as "sporadic, possibly neglected."
+
+**B. Strata Cross-Section (Cliff Face)**
+
+When you click into a module, show a sideways view — like looking at a cliff face. Horizontal layers, time flowing bottom-to-top.
+
+```
+NOW    ┃████████████████████████┃  ← thick band = current sprint's heavy changes
+       ┃▓▓▓▓▓▓▓▓                ┃  ← medium band = last month
+       ┃░░                      ┃  ← thin band = quiet quarter
+       ┃░                       ┃  ← quiet
+       ┃████████████████        ┃  ← historical surge (incident? rewrite?)
+       ┃▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓┃  ← original construction
+ORIGIN ┃▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓┃
+```
+
+You can literally **read the history** of a module like a geologist reads rock. "This module was built, then stabilized, then something big happened 6 months ago, then it went quiet, and now it's getting hammered again."
+
+**C. Activity Heatmap Timeline**
+
+A sparkline-style row per file, showing change intensity over time as a color gradient strip.
+
+```
+src/auth/middleware.ts  ░░░░░▓▓▓████████░░░▓████████
+src/auth/session.ts     ░░░░░░░░▓▓░░░░░░░░░░░░▓▓▓▓▓
+src/api/routes.ts       ░░▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+src/lib/utils.ts        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+                        ←── 1 year ago             now ──→
+```
+
+At a glance: middleware.ts has **two burst periods** (something happened). routes.ts has **constant medium churn** (workhorse file). utils.ts is **dead quiet** (stable, possibly abandoned).
+
+### What These Encode from Change Shape
+
+| Strata Signal | Visual Encoding |
+|---|---|
+| Churn | Layer thickness / ring width |
+| Recent vs old activity | Position (outer rings = recent) |
+| Hotspot growth | Accelerating outer ring thickness |
+| Ownership drift | Layer color shifting (different author colors per layer) |
+| Long-lived risky areas | Many thick layers throughout (never stabilizes) |
 
 ---
 
-## 6. Animation and Motion: Temporal Bandwidth
+## 2. Heat & Activity Encoding — Patina, Erosion, and Wear
 
-The human visual system is exquisitely tuned to motion. A single moving object in a still scene captures attention instantly (pre-attentive processing). Use this wisely — animation is a scarce resource.
+### The Core Idea: Code Shows Its Age Through Material Wear
 
-### Motion Language:
+Not just "red = hot". Material quality that communicates age, activity, and stability:
 
-| Motion type | Meaning | When to use |
-|------------|---------|-------------|
-| **Pulsing glow** (slow, warm) | Churn hotspot. This area is actively changing. | Entities with high recent churn. Pulse frequency ∝ commit frequency. |
-| **Ripple outward** (concentric rings) | Blast radius. "If you touch this, the ripple reaches here." | On hover/select of an entity. Ripple speed shows how quickly the effect propagates. |
-| **Breathing** (slow expand/contract) | Health/heartbeat. System-level health indicator. | Module-level indicator. Healthy = slow, calm. Unhealthy = rapid, irregular. |
-| **Flowing** (directional particle movement) | Data/call flow. Direction and speed of execution. | Along river/flow-field paths. Faster flow = hotter path. |
-| **Trembling/vibration** | Instability. This entity has conflicting signals or is on the edge. | High complexity + high churn + low tests. Feels precarious. |
-| **Spinning/vortex** | Cycle detected. | Dependency cycles. The vortex diameter ∝ cycle length. |
-| **Lightning flash** (brief, bright) | Recent change. "Something just happened here." | Real-time: when a file save or git commit touches a file, flash its terrain feature. |
-| **Erosion animation** (slow surface change) | Refactoring in progress. | When code is being simplified over multiple commits, the terrain slowly smooths out. Satisfying. |
-| **Cracking/fracturing** | Boundary violation or coupling increase. | When a new dependency is added that crosses a boundary, a crack visually propagates along the fault line. |
-| **Fog rolling in/out** | Confidence changing. | When tests are added, fog clears. When tests are deleted, fog rolls in. |
+**Active/Churning Code — Molten/Glowing**
+- Code that's currently being hammered: **ember glow**. Literal heat. Orange-red pulsing edges. Like metal in a forge — it's being shaped right now. The glow intensity maps to recency × frequency of changes.
 
-### Critical rule: **Most of the time, most things should be still.**
+**Stable, Well-Worn Code — Polished Stone**
+- Code that changes rarely but is mature: **smooth, dark granite**. Dense. Solid. No texture variation. It's been under pressure and compressed into something reliable. Think polished obsidian.
 
-Animation is for exceptions. A fully animated landscape is useless — it's a screensaver. The power of motion comes from contrast with stillness. If only 3 things are moving, your eye goes to them immediately.
+**Abandoned/Neglected Code — Weathered/Eroded**
+- Code that hasn't been touched in ages: **moss and rust**. Desaturated greens and browns creeping in from the edges. Not dangerous per se, but unknown. Nobody remembers why it looks like this. Lichen on forgotten ruins.
 
-### Time-lapse Mode:
+**Recently Created Code — Fresh Construction**
+- Brand new files/modules: **bright, clean, sharp edges**. Like fresh-cut wood or poured concrete. Conspicuous because it doesn't match the patina of surrounding terrain. Stands out as "new here."
 
-A distinct mode (not the default) that shows the codebase evolving over git history:
+**Crisis-Churned Code — Scarred/Cracked**
+- Code that went through a burst of emergency changes (revert, hotfix, incident response): **stress fractures**. Visible cracks in the surface. The material was forced to change too fast and shows the strain.
 
-- Terrain rises and falls as functions are added/removed.
-- Hotspots glow and fade as churn moves around.
-- Rivers change course as call graphs restructure.
-- Mountain ranges form and erode as modules are created and refactored.
-- You can see the "geological history" of the codebase in 30 seconds.
+### Concrete Color Mapping
 
-This is for understanding _how we got here_, not for daily use. Like watching a climate simulation vs checking today's weather.
+```
+Ember Glow          Warm Granite        Cool Slate          Weathered Stone
+(active churn)      (recent stable)     (old stable)        (abandoned)
+  ██████              ██████              ██████              ██████
+  hot orange →        warm gray →         cool blue-gray →    desaturated green
+  pulsing             smooth              smooth              textured/noisy
+  bright              medium              dim                 dim, uneven
+```
 
----
+### Encoding in the Terrain Map
 
-## 7. Interactive Affordances: The Question → Answer Loop
+Each file/module tile's **surface treatment** communicates activity:
 
-Every visual should answer a question. Every interaction should reveal a deeper question.
+- **Background luminosity** = recency of last change (bright = yesterday, dim = 6 months ago)
+- **Edge glow** = current churn rate (glowing edges = being actively changed)
+- **Surface noise/texture** = churn variability (smooth = consistent cadence, noisy = erratic)
+- **Color temperature** = warm (active) → cool (dormant)
 
-### Hover (instant, lightweight):
-
-| What you hover | What appears |
-|---------------|-------------|
-| A terrain feature (file/function) | Name, safety rating, 1-line summary: `authMiddleware · RED · 14 implicit couplings` |
-| A river/flow path | Path name: `POST /checkout → validateCart → chargePayment → updateInventory` |
-| A fault line (boundary) | Boundary info: `packages/auth ↔ packages/billing · 3 violations` |
-| A whirlpool (cycle) | Cycle members: `A → B → C → A · 3 files` |
-| A fog bank | Missing info: `No test coverage data for /legacy/*` |
-
-### Click (opens detail panel):
-
-| What you click | What opens |
-|---------------|-----------|
-| Entity | Full risk card: metrics, blast radius, change ripple, risk factors, recent commits, callers/callees, implicit couplings. The entity's "medical chart." |
-| River | Full path trace: every entity along this call chain, with complexity and risk at each hop. A "river cross-section." |
-| Module/region | Module health summary: aggregate complexity, churn, boundary violations, top hotspots, coverage. The module's "census report." |
-| Fault line | Boundary analysis: what crosses, how often, violations, suggested fixes. |
-
-### Drag (spatial queries):
-
-- **Lasso selection**: Draw a region to select multiple entities. Shows aggregate stats: total LOC, combined blast radius, shared dependencies. "What's in this area?"
-- **Path drawing**: Draw a line from A to B to ask "how does data/control flow from here to there?" Strata highlights the shortest path and all significant alternate routes.
-- **Boundary drawing**: Draw a line to propose a new module boundary. Strata instantly shows how many connections would cross it (feasibility of the split).
-
-### Special interactions:
-
-- **Right-click → "What changes if I modify this?"**: Triggers blast radius + change ripple visualization. Everything in the ripple zone highlights; everything outside dims.
-- **Right-click → "What should I read first?"**: Strata computes the context cost path — the minimal set of files/functions to read to understand this entity. Highlights them in reading order, with estimated token cost.
-- **Right-click → "Is this safe for an agent?"**: Shows the agent risk card and highlights all the reasons it's green/yellow/red. If red, shows what _would_ make it green (more tests, smaller blast radius, resolving implicit couplings).
-- **Diff mode toggle**: Overlay the PR diff onto the terrain. Changed files glow. Missed files (from `diff.ts` analysis) appear as warning markers. The terrain itself _deforms_ to show how the PR changed the system shape.
+This means you can scan the terrain map and immediately distinguish:
+- The forge (orange glow, active work area)
+- The bedrock (dark granite, stable foundation)
+- The ruins (mossy, weathered, forgotten corners)
+- The construction site (bright, sharp, new)
 
 ---
 
-## 8. Specific Visual Solutions for Hard Problems
+## 3. Confidence as Material Quality — Structural Integrity
 
-### Problem: Temporal Coupling (invisible connections)
+### The Core Idea: Tests Make Code SOLID
 
-Files that co-change but have no import/call relationship. This is Strata's strongest signal and the hardest to visualize because the connection is _historical_, not structural.
+Untested code is fragile material. Well-tested code is reinforced. You should be able to *see* structural integrity at a glance.
 
-**Solution: Sympathetic Resonance**
+**Well-Tested Code — Reinforced Concrete / Diamond**
+- Dense, solid, opaque. Visible reinforcement patterns (like rebar lines). The material resists damage. When you hover, it feels *heavy* — substantial. A module with 95% coverage and no flaky tests is rendered as a fortress block.
 
-When you select a file, its temporally coupled files start to _resonate_ — a subtle glow/pulse at the same frequency. Like tuning forks that vibrate in sympathy. The coupling strength determines the intensity:
+**Partially Tested Code — Wood / Brick**
+- Functional, but you can see the grain. It'll hold up under normal conditions, but you wouldn't trust it in an earthquake. Visible seams between tested and untested regions — like mortar lines in brick.
 
-- 90% co-change: bright, synchronous pulse. Clearly linked.
-- 50% co-change: dimmer, slightly out-of-phase. Suggestive.
-- 30% co-change: barely visible. Only shows if you're looking.
+**Untested Code — Glass / Paper**
+- Translucent or thin. You can see through it (literally — lower opacity). It *looks* fragile. A file with zero tests is rendered almost transparent, like a soap bubble sitting in the terrain. One poke and it shatters.
 
-Additionally, in the terrain, temporal couplings are shown as **underground aquifers** — dotted lines beneath the surface, visible in a "subsurface" overlay mode. You can toggle between surface view (structural connections only) and subsurface view (temporal/implicit connections).
+**Snapshot-Only Code — Ice**
+- Rigid but brittle. Clear and structured, but the testing is frozen — it tells you shape hasn't changed, not that behavior is correct. Rendered with a crystalline, icy texture. Looks solid until you apply force.
 
-### Problem: Module Boundaries That Are Violated
+### Visual Encoding Table
 
-**Solution: Walls with Damage**
+| Coverage Level | Material | Opacity | Texture | Border |
+|---|---|---|---|---|
+| 90%+ unit + integration | Diamond/Steel | 100% | Smooth, dense | Solid double-line |
+| 70-90% unit | Concrete | 90% | Slight grain | Solid line |
+| 40-70% unit only | Wood | 75% | Visible grain | Dashed line |
+| Snapshots only | Ice | 80% | Crystalline facets | Dotted blue line |
+| <40% coverage | Paper | 50% | Crinkled / noisy | Thin single line |
+| 0% coverage | Glass | 30% | Transparent | No border / hairline |
 
-Module boundaries are rendered as walls/fences between terrain regions. The wall's condition tells the story:
+### Combined with Activity
 
-- **Clean boundary**: Tall, intact wall with clear gates (public APIs) where flow passes through legitimately.
-- **Leaky boundary**: Cracks in the wall. Each violation is a visible crack, with flow seeping through. More violations = more damage = wall looks like it's crumbling.
-- **No boundary at all**: No wall exists. Code is freely intermixed. This is fine if they're meant to be one module; alarming if they're not.
-- **Proposed boundary** (from architecture intent): Shown as a planned wall outline (dotted/ghosted), with existing connections highlighted that _would_ cross it.
+The magic is combining confidence (material) with activity (temperature):
 
-### Problem: Showing Blast Radius Without Overwhelming
-
-**Solution: Seismic Rings**
-
-When you "detonate" an entity (click + blast radius mode), concentric rings expand outward:
-
-- **Ring 1** (direct callers): Bright, sharp, immediate.
-- **Ring 2** (callers of callers): Slightly fainter.
-- **Ring N** (transitive): Increasingly faint, like earthquake intensity diminishing with distance.
-
-The terrain _outside_ the blast radius dims. You instantly see the "damage zone" and its falloff. The ring animation takes ~1 second, giving a visceral sense of "oh, this reaches _far_."
-
-### Problem: Context Cost Visualization
-
-How much does an agent need to "read" to safely modify this entity?
-
-**Solution: Illumination Radius**
-
-Think of the entity as a campfire. The light it casts (context window) illuminates nearby terrain. The brighter the light needs to be (more context needed), the more energy (tokens) it costs.
-
-- **Green entity**: Small campfire. Illuminates just the entity and its immediate neighbors. Low context cost. An agent can handle this easily.
-- **Yellow entity**: Larger fire. Illuminates several surrounding files. Medium cost. Agent needs to read these too.
-- **Red entity**: Blazing bonfire. Illuminates a vast area — dozens of files. The token count is displayed as the "fuel cost" of this fire. An agent might not have enough context window.
-
-On hover, show the illumination with a gradient: bright at center → dark at edge. Files within the illumination are labeled with their estimated token cost.
+- **Glowing diamond** = actively changing, well-tested. The ideal. You can send agents here confidently.
+- **Glowing glass** = actively changing, no tests. **ALARM.** This is the worst case — hot, fragile code. Render with red tint bleeding through the transparency.
+- **Cold granite** = stable, well-tested. Foundation. Leave it alone.
+- **Mossy glass** = abandoned AND untested. Landmine. Render with a hazard pattern — diagonal stripes visible through the transparency.
 
 ---
 
-## 9. The Dual-View: Terrain + Adjacency Matrix
+## 4. The PR Delta View — Tectonic Shift
 
-For power users who need precision alongside intuition:
+### The Core Idea: Before/After as Landscape Transformation
 
-**Split screen available:**
-- Left: Terrain view (intuitive, spatial, gestalt understanding)
-- Right: Adjacency matrix or compact list view (precise, searchable, sortable)
+A PR is a tectonic event. Show the terrain map BEFORE and AFTER, with the shift visible.
 
-When you hover over terrain, the matrix highlights the corresponding row/column. When you click a matrix cell, the terrain zooms to that connection.
+### Representation A: Split-Screen with Animated Transition
 
-The matrix uses the same color/intensity encoding as the terrain, so the visual language is consistent.
+```
+┌─────────── BEFORE (HEAD~1) ──────────────┬─────────── AFTER (HEAD) ────────────────┐
+│                                           │                                          │
+│   ┌──────────┐  ┌────────┐               │   ┌──────────┐  ┌────────┐              │
+│   │ auth/    │  │ api/   │               │   │ auth/ ███│  │ api/   │              │
+│   │ ░░░░░░░░ │  │ ░░░░░░ │               │   │ ████████ │  │ ░░░░░░ │  ┌────────┐ │
+│   │ ░░░░░░░░ │  │ ░░░░░░ │               │   │ ████████ │  │ ░░░░░░ │  │ NEW!   │ │
+│   └──────────┘  └────────┘               │   └──────────┘  └────────┘  │rate-    │ │
+│                                           │                             │limit/   │ │
+│   ┌──────────────────────┐               │   ┌──────────────────────┐  └────────┘ │
+│   │ lib/                 │               │   │ lib/                 │              │
+│   │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │               │   │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │              │
+│   └──────────────────────┘               │   └──────────────────────┘              │
+│                                           │                                          │
+└───────────────────────────────────────────┴──────────────────────────────────────────┘
+                         ▲ auth/ went from yellow → red
+                         ▲ new module "rate-limit/" appeared
+                         ▲ lib/ unchanged
+```
+
+**With animated transition:** Morphing between before and after. The auth module visibly *heats up* (color shift). The new rate-limit module *rises out of the ground* (scale from 0). Unchanged areas stay still. The eye is drawn to motion = change.
+
+### Representation B: Diff Overlay (Construction Markings)
+
+Instead of split-screen, overlay the changes ON the current map:
+
+- **Changed files:** Highlighted with construction-tape border (yellow/black diagonal stripes)
+- **New files:** Bright "fresh concrete" appearance with a ⊕ badge
+- **Deleted files:** Ghost outline where they used to be (dotted, fading)
+- **Affected-but-not-changed files:** Ripple rings emanating outward from changed files, like earthquake epicenter waves. The further the ring, the weaker the effect.
+- **Risk level change:** Directional arrows. A file that went green→yellow gets a small ▲ arrow. Yellow→red gets a larger ▲▲. Red→green gets a satisfying ▼ checkmark.
+
+```
+┌─────────────────── PR #427: Add Rate Limiting ───────────────────────┐
+│                                                                       │
+│   ┌──⚡CHANGED⚡──┐  ┌────────┐     ┌──────┐                        │
+│   │ auth/         │  │ api/   │     │ NEW  │                        │
+│   │ ████▲▲██████ │  │ ░░░░░░ │     │rate- │                        │
+│   │ middleware.ts │╌╌│╌╌╌╌╌╌╌│╌╌╌╌╌│limit │                        │
+│   │ ▲ yellow→red │  │ routes │     │ .ts  │                        │
+│   └──────────────┘  └────┬───┘     └──────┘                        │
+│          │ripple          │ripple                                     │
+│          ▼                ▼                                           │
+│   ╭╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮                                    │
+│   ╎ session.ts  (87% co-change)╎  ← ripple ring / affected zone     │
+│   ╎ ⚠ NOT IN THIS PR          ╎                                     │
+│   ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯                                    │
+│                                                                       │
+│   ┌──────────────────────┐                                           │
+│   │ lib/ (unchanged)     │                                           │
+│   │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │                                           │
+│   └──────────────────────┘                                           │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+### Representation C: Seismic Map
+
+The PR is an earthquake. Show the **epicenter** (changed files) and **shock waves** (blast radius / ripple zone):
+
+- **Epicenter:** Pulsing red/orange core at the changed entities
+- **Primary wave (P-wave):** Static dependencies — direct callers/callees. Strong, fast-traveling wave. Solid concentric rings.
+- **Secondary wave (S-wave):** Temporal/implicit couplings. Slower, wider, more destructive. Dashed concentric rings in a different color (amber).
+- **Aftershock zones:** Untested files in the ripple zone. Small tremor icons (⚡) on files that have no test coverage within the blast radius.
+
+The seismic metaphor lets you instantly see: "This was a magnitude 7 change" (huge ripple, many waves) vs "magnitude 2" (tiny local change, waves barely visible).
 
 ---
 
-## 10. Design Principles Summary
+## 5. Temporal Coupling — Invisible Forces
 
-1. **Pre-attentive first.** The most important signals (danger, stability, change) should register in <200ms without reading any text.
+### The Core Idea: Gravitational Pull Between Unconnected Bodies
 
-2. **Parallel channels.** Use position, size, color, texture, motion, and depth simultaneously. Each channel encodes a different dimension. Never use two channels for the same thing.
+Files that co-change without import links are like celestial bodies locked in gravitational orbit. They *look* independent, but they're bound by invisible forces.
 
-3. **Calm by default.** The baseline state of the visualization should be calm, quiet, mostly still. Only exceptions move/glow/pulse. This preserves the attentional power of animation.
+### Representation A: Gravitational Lanes
 
-4. **Semantic zoom, not geometric zoom.** Zooming in doesn't just make things bigger — it reveals _qualitatively different information_. Like going from satellite to street view.
+In the terrain map, temporally coupled files are connected by **gravity lanes** — subtle curved lines that pull between them, like the Lagrange points between celestial bodies.
 
-5. **Questions, not dashboards.** Every visual state should answer a specific question. The UI's job is to let users ask the next question naturally (hover → click → drill → lasso → trace).
+- **Line style:** NOT straight lines (those mean imports). Curved, flowing, almost like magnetic field lines. They *arc* between the files.
+- **Line opacity:** Maps to co-change confidence (90% = clearly visible, 30% = barely perceptible)
+- **Line animation:** Slow, gentle pulsing. Like a heartbeat. The files are alive and breathing in sync.
+- **Line color:** Amber/gold — distinct from blue (static deps) and red (danger). Gold = "hidden connection you should know about."
 
-6. **Suppress the boring.** Safe, tested, stable code should fade toward invisible. The visualization should _actively push your attention_ toward what matters.
+```
+   ┌────────────┐                    ┌────────────┐
+   │ auth.ts    │                    │ oauth.ts   │
+   │            │╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│            │
+   └────────────┘  ~~~~ 94% ~~~~    └────────────┘
+         no import link, but they ALWAYS change together
 
-7. **Physical intuition over learned convention.** Use metaphors that tap into spatial/physical reasoning humans already have (gravity, water flow, terrain, fire, fog) rather than inventing new symbol systems that must be learned.
+   vs.
 
-8. **Honest uncertainty.** Where Strata doesn't have data or has low confidence, show fog/blur/transparency. Never make uncertain data look certain.
+   ┌────────────┐────────────────────┌────────────┐
+   │ routes.ts  │────── import ──────│ handler.ts │
+   └────────────┘   solid = static   └────────────┘
+```
+
+### Representation B: Synchronized Pulsing
+
+When you select a file, all temporally coupled files **pulse in unison** — like they're breathing together. The pulse rate and amplitude correspond to coupling strength.
+
+- Select `auth.ts` → `oauth.ts` starts pulsing (94% coupling, strong pulse) → `session.ts` gently glows (45% coupling, faint pulse) → everything else stays still.
+- This creates an immediate visceral sense of "these things are connected" without drawing any lines.
+
+### Representation C: Proximity Warping
+
+In the terrain map layout, temporally coupled files are **pulled closer together** than pure directory hierarchy would place them. The layout algorithm factors in temporal coupling as an attractive force.
+
+- Files in different directories that co-change frequently end up **near each other** on the map, even if they're in different module groups.
+- A visible "coupling bridge" connects them across the gap — like a land bridge between two continents that shouldn't be connected.
+
+This means the spatial layout itself encodes coupling. Files that feel close ARE close (in change-behavior), even if they're far in the file tree.
+
+### Representation D: Resonance Lines (The Best One)
+
+Drawing on the physics of sympathetic vibration:
+
+When one tuning fork vibrates, a nearby tuning fork at the same frequency starts vibrating too — without physical contact. **Resonance.**
+
+Visual: When a changed file's ripple animation plays (outward rings), temporally coupled files that aren't in the static dependency tree show their own **sympathetic ripple** — a secondary vibration that appears to be triggered by the first, but through invisible medium.
+
+```
+auth.ts CHANGED  ═══wave═══▶  handler.ts (import) ═══wave═══▶  db.ts (import)
+     │
+     │ (no import, but...)
+     │
+     ╰ ~~~resonance~~~▶  oauth.ts (87% co-change)
+                              └── its own ripple appears, delayed
+```
+
+The delay between the primary wave and the resonance wave communicates "this isn't a direct link — it's a pattern." The human brain picks up on this timing difference instantly.
 
 ---
 
-## 11. What This Looks Like: A Walkthrough
+## 6. Test Coverage as Armor / Protection — The Shield Layer
 
-> You open Strata on a 50k-LOC TypeScript backend.
+### The Core Idea: Tests Are Defensive Infrastructure
 
-**First second:** You see a terrain. Mostly green-gray plains and gentle hills. Your eye immediately catches two things: a glowing volcanic peak in the northeast (auth module — high complexity, high churn), and a spinning whirlpool in the southwest (a circular dependency between three service files).
+Like medieval fortification — walls, moats, watchtowers. You can see how well-defended an area is.
 
-**You zoom to the auth module.** The terrain resolves from a single glowing peak into a small mountain range. You see five major features (files). One is a craggy obsidian spire — `authMiddleware.ts`, 400 LOC, deeply nested, many params. Rivers converge on it from all directions (high fan-in). Two underground aquifer lines pulse — temporal couplings to files in the payments module that have no import relationship.
+### Representation A: Shield Overlay
 
-**You click the spire.** Seismic rings expand outward. 23 files light up. The blast radius reaches into four modules. The risk card opens: RED. "14 implicit couplings. No tests covering 3 affected callers. Context cost: 47,000 tokens."
+Toggle-able overlay that renders protective "shields" around tested code:
 
-**You right-click → "What should I read first?"** Five terrain features illuminate in numbered order: the middleware itself, the session validator it calls, the rate limiter config, and two temporal coupling targets. Total reading: ~12,000 tokens. The rest dims.
+- **Full test suite (unit + integration + e2e):** Triple concentric shield. Think Captain America's shield — layered rings of protection. Each ring = a test tier.
 
-**You toggle diff mode.** Your current PR overlay appears. Two files you changed glow blue. Three files you _didn't_ change but _should have reviewed_ glow orange with warning markers. The terrain between your changes and the warnings shows the connection: an underground aquifer (temporal coupling) that your diff analysis would have caught.
+```
+            ╔═══════╗
+          ╔═║ e2e   ║═╗
+        ╔═║ ║ integ ║ ║═╗
+        ║ ║ ║ unit  ║ ║ ║
+        ║ ║ ║ CODE  ║ ║ ║
+        ╚═║ ║       ║ ║═╝
+          ╚═║       ║═╝
+            ╚═══════╝
+```
 
-**You fix the missing files, submit the PR.** The terrain smooths slightly — the blast radius contracted by 2 files because you added a test. The fog over one area clears. The volcanic glow dims a fraction.
+- **Unit only:** Single thin shield ring. Protects against obvious breakage but won't catch integration issues.
+- **Integration only:** Shield ring with gaps. Like chain mail — strong in some directions, exposed in others.
+- **No tests:** No shield. The module sits naked on the terrain, exposed to the elements.
+
+### Representation B: Fortress Walls (The Moat Metaphor)
+
+Draw literal **walls** around well-tested modules. The wall height/thickness corresponds to coverage depth:
+
+- **Thick walls + moat:** 90%+ coverage with multiple test types. This is a castle. Agents can operate inside safely — the walls catch escaping bugs.
+- **Low walls:** Partial coverage. Some protection, but things can climb over.
+- **No walls, just open ground:** Zero coverage. Anything goes. Render the ground as exposed soil rather than paved/protected surface.
+
+The moat specifically represents **integration tests** — they catch things at the boundaries. Unit tests are the inner walls. E2e tests are the outer watchtowers.
+
+### Representation C: Umbrella / Canopy Coverage
+
+View from above: tested code has a **canopy** (like tree cover in a forest seen from satellite):
+
+- Dense canopy (dark green) = well-tested. You can't see the ground underneath.
+- Sparse canopy (light green, holes) = partial coverage. You see patches of exposed ground.
+- No canopy = bare terrain. Fully exposed.
+
+The gaps in the canopy are WHERE specific functions lack coverage. You can zoom in and see exactly which functions are roofed vs exposed.
+
+### The "Armor + Heat" Combination (Most Important Insight)
+
+The killer visualization is showing BOTH activity AND protection simultaneously. This creates four quadrants that matter enormously for agent risk:
+
+```
+                    WELL-TESTED                  UNTESTED
+                    (armored)                    (exposed)
+              ┌─────────────────────┬─────────────────────┐
+  ACTIVE      │                     │                     │
+  (hot)       │   ✅ SAFE TO SEND   │  🚨 DANGER ZONE    │
+              │   AGENTS HERE       │  STOP AND ADD TESTS │
+              │                     │  FIRST              │
+              │   warm diamond      │  glowing glass      │
+              │                     │                     │
+              ├─────────────────────┼─────────────────────┤
+  STABLE      │                     │                     │
+  (cold)      │   💤 LEAVE ALONE    │  💣 HIDDEN LANDMINE │
+              │   IT'S FINE         │  LOOKS SAFE BUT     │
+              │                     │  ISN'T              │
+              │   cold granite      │  mossy glass        │
+              │                     │                     │
+              └─────────────────────┴─────────────────────┘
+```
+
+The **glowing glass** quadrant (upper-right) is the single most important thing to show. This is where agents are actively changing fragile code. Every visual encoding should make this quadrant SCREAM.
 
 ---
 
-## 12. Prior Art & References
+## 7. Risk Trajectory — Directional Indicators
 
-| Reference | What to steal | What to avoid |
-|-----------|--------------|---------------|
-| **CodeCity** (Wettel & Lanza) | City-block metaphor, LOC→footprint, complexity→height | Boring textures, no connection viz, no temporal dimension |
-| **earth.nullschool.net** | Flow field rendering, global-to-local zoom, real-time data on beautiful canvas | — |
-| **D3 treemaps** | Space-filling for showing proportional size | Treemaps don't show connections; nested rectangles don't build intuition |
-| **Gource** (git history viz) | Time-lapse evolution of a codebase | It's fun but not useful. No semantic meaning to position. |
-| **Google Earth** | Semantic zoom transitions, satellite→street UX | — |
-| **Hillshading** (cartographic technique) | Using simulated light/shadow to reveal terrain shape from 2D rendering | — |
-| **SonarQube** | ...nothing. Red/green circles with numbers. Zero visual bandwidth. | Everything. No spatial encoding, no connection viz, no intuition-building. |
-| **Observable Plot / Vega-Lite** | Expressive grammar for encoding data→visual channels | They're for charts, not spatial metaphors |
-| **Minard's map of Napoleon's march** | Multi-dimensional data in a single coherent visual: geography + army size + temperature + direction + time | This is the gold standard of information density per visual element |
+### The Core Idea: Show the Derivative, Not Just the Value
+
+Knowing something is yellow isn't enough. Is it yellow-trending-red or yellow-trending-green? The trajectory matters more than the current state.
+
+### Representation A: Trailing Indicators (Comet Tails)
+
+Each module has a **trail** showing where it came from risk-wise:
+
+```
+  ╭──────────╮
+  │ auth/    │
+  │ 🔴 RED   │◀──◀──◀── (was yellow 2 months ago, was green 6 months ago)
+  │          │     trail shows trajectory: accelerating toward danger
+  ╰──────────╯
+
+  ╭──────────╮
+  │ lib/     │
+  │ 🟡 YELLOW│──▶──▶──▶ (was red 3 months ago, improving)
+  │          │     trail shows: recovering, trending safe
+  ╰──────────╯
+```
+
+The trail's color gradient tells the story: green→yellow→red means degrading. Red→yellow→green means improving. The tail length = how far back the trend extends.
+
+### Representation B: Risk Contour Lines (Topographic)
+
+Treat risk as elevation. Higher = more dangerous. Draw topographic contour lines on the terrain map.
+
+Over time, the contour lines MOVE:
+- **Rising terrain:** Contour lines getting closer together = risk is concentrating, steepening. A cliff forming.
+- **Subsiding terrain:** Contour lines spreading out = risk is dissipating. Flattening.
+- **New peak:** A contour circle appearing where there was flat ground = new risk emerging.
+
+Show with a time scrubber: drag the slider and watch the contours shift. Like watching tectonic plates move over geological time.
+
+### Representation C: Weathervane Arrows (Simplest & Best)
+
+Small directional arrows on each module/file tile:
+
+- **↗ Arrow pointing up-right (red):** Getting riskier. Bigger arrow = faster deterioration.
+- **↘ Arrow pointing down-right (green):** Getting safer. Bigger arrow = faster improvement.
+- **→ Arrow pointing right (gray):** Stable. No significant change in risk.
+- **No arrow:** Insufficient history to determine trend.
+
+```
+  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+  │ auth/    │   │ api/     │   │ lib/     │   │ tests/   │
+  │ 🔴  ↗↗   │   │ 🟡  →    │   │ 🟢  ↘    │   │ 🟢  →    │
+  └──────────┘   └──────────┘   └──────────┘   └──────────┘
+   getting        stable         improving       stable
+   worse fast
+```
+
+The double-arrow ↗↗ is alarming. The single-arrow ↘ is reassuring. No clutter, instant read.
+
+### Representation D: Erosion / Growth Animation
+
+Over a time-lapse (scrubber):
+- **Growing risk:** Module visually expands and heats up, like lava slowly filling a valley
+- **Shrinking risk:** Module cools and contracts, like lava hardening into stone
+- **Coupling creep:** New gravity lanes (temporal coupling lines) slowly appear between modules, like cracks spreading
+- **New dependency edges:** New import arrows fade in, thickening the web
+
+Playing this animation at 10x speed over 6 months would reveal: "Oh, auth has been slowly swallowing the system. It's pulling everything toward it gravitationally. Three months ago it wasn't this connected."
 
 ---
 
-## 13. Open Questions
+## 8. Flaky Tests as Unreliable Protection — Cracked Shields
 
-1. **2D or 3D?** Terrain naturally suggests 3D, but 3D navigation is hard and occlusion is a problem. Maybe 2.5D (isometric / oblique projection with parallax) gets 80% of the benefit with 20% of the interaction complexity? Or a top-down view with hillshading that creates the _impression_ of 3D without actual 3D navigation?
+### The Core Idea: A Shield With Cracks Is Worse Than No Shield
 
-2. **Layout algorithm:** What positions entities spatially? Force-directed (communities cluster)? Treemap (space-filling)? Hilbert curve (preserves locality)? Fixed by directory structure? The layout must be _stable_ — it can't jump around between sessions or the human loses their mental map.
+Flaky tests are like armor that randomly disappears mid-battle. The protection is unreliable. This needs a DISTINCT visual from "well-tested" and "untested."
 
-3. **Performance at scale:** 100k entities with texture, animation, and flow fields. WebGL/WebGPU required. How much can be precomputed vs real-time? Can we use SDF (signed distance field) rendering for the terrain?
+### Representation A: Flickering Shield
 
-4. **Color blindness:** The terrain metaphor is less dependent on color than traditional viz (texture, shape, motion, position all carry signal). But need to ensure the palette works for protanopia/deuteranopia. Maybe the primary axes are luminance + texture, with hue as secondary.
+The protection overlay for flaky-test-guarded code **flickers.** It blinks in and out, randomly. Sometimes the shield is visible, sometimes it's not. The flicker rate corresponds to flake rate:
 
-5. **Learning curve:** How much of this is instantly intuitive vs requires a 2-minute orientation? The terrain metaphor should be mostly self-explanatory (tall = complex, glowing = active, rivers = flow). But temporal coupling aquifers and blast radius seismic rings might need a brief tutorial.
+- 5% flake rate: Occasional, subtle flicker. You barely notice.
+- 30% flake rate: Distracting, rapid flicker. Something is clearly wrong.
+- 80% flake rate: Strobing. This protection is basically random.
 
-6. **Integration with text editing:** This is an IDE, not just a visualizer. How does the terrain relate to the code editor? Split pane? The terrain _is_ the file browser? Click a feature and the editor opens that file? The editor is a "ground-level view" of the terrain?
+The flicker is deeply unsettling — it creates the *feeling* of unreliability. You look at a module with flickering shields and your gut says "I don't trust this."
+
+### Representation B: Cracked / Fractured Shield
+
+The shield overlay has visible **fracture lines.** Like cracked glass or cracked ceramic armor:
+
+```
+  Solid shield (reliable):     Cracked shield (flaky):
+      ╔═══════╗                    ╔═══╗╔══╗
+      ║ UNIT  ║                    ║ UN╱╱T ║
+      ║ TESTS ║                    ║ TE╲TS ║
+      ║       ║                    ╠═══╝╚══╣
+      ╚═══════╝                    ╚════════╝
+
+  The cracks show: this shield MIGHT protect you.
+  Or the pieces might fall off when struck.
+```
+
+### Representation C: Rust / Corrosion on Armor
+
+Flaky tests render their protection layer with **rust spots** — orange-brown patches eating into the shield material. The more flaky tests, the more corroded the armor looks. This communicates:
+
+- The tests existed (it was once good armor)
+- They're degrading (rust is spreading)
+- The protection is becoming unreliable over time
+- Someone needs to maintain this armor
+
+### Representation D: Signal Noise Visualization
+
+Show test confidence as a **signal strength** indicator (like WiFi bars):
+
+```
+  Strong signal (reliable):    Noisy signal (flaky):       No signal (untested):
+      ████                         █ █                         
+      ████                         ██                          
+      ████                         █  █                        
+      ████                         █                           
+```
+
+The noise pattern in flaky-test-covered code reads as "there's a signal here, but it's unreliable." Clean bars = trustworthy. Choppy bars = suspicious. Empty = exposed.
+
+### The Combined Flaky Encoding
+
+Best approach combines subtle elements:
+1. **Border treatment:** Shield border switches from solid → dashed (cracked)
+2. **Opacity oscillation:** Gentle, slow breathe-in/breathe-out opacity change (5-10% range)
+3. **Color shift:** Shield hue shifts slightly toward amber/orange (rust)
+4. **Badge:** Small ⚡ icon on the tile (lightning = intermittent)
+
+This way, from a distance you see "something's off with that shield." Up close you see exactly what.
+
+---
+
+## 9. Cross-Cutting Visualizations — Where Dimensions Combine
+
+The individual encodings above become powerful when layered:
+
+### The "Agent Go/No-Go" Dashboard View
+
+A single-screen view for deciding "should I send an agent into this area?"
+
+```
+┌─────────────────────────── AGENT MISSION BRIEFING ──────────────────────────┐
+│                                                                              │
+│  Target: src/auth/                                                          │
+│                                                                              │
+│  ┌─── MATERIAL ───┐  ┌─── ACTIVITY ────┐  ┌─── PROTECTION ──┐             │
+│  │                 │  │                  │  │                  │             │
+│  │  ██████████     │  │  ████░░░░████   │  │  ╔══╗  ╔╱═╗     │             │
+│  │  Wood (60%      │  │  Two burst      │  │  ║OK║  ║⚡ ║     │             │
+│  │  coverage →     │  │  periods,       │  │  ╚══╝  ╚══╝     │             │
+│  │  moderate       │  │  currently      │  │  middleware:     │             │
+│  │  integrity)     │  │  HOT            │  │  solid           │             │
+│  │                 │  │                  │  │  session: flaky  │             │
+│  └─────────────────┘  └──────────────────┘  └──────────────────┘             │
+│                                                                              │
+│  ┌─── COUPLING ────────────────────────────────────────────────┐             │
+│  │                                                              │             │
+│  │  auth.ts ═══▶ handler.ts ═══▶ db.ts          (static)      │             │
+│  │  auth.ts ~~~▶ oauth.ts                       (94% temporal) │             │
+│  │  auth.ts ~~~▶ session.ts                     (87% temporal) │             │
+│  │                                                              │             │
+│  └──────────────────────────────────────────────────────────────┘             │
+│                                                                              │
+│  ┌─── TRAJECTORY ──┐  ┌─── VERDICT ─────────────────────────┐              │
+│  │                  │  │                                      │              │
+│  │  6mo: 🟢 → 🟡 → 🔴 │  │  🔴 DO NOT SEND AGENT UNSUPERVISED  │              │
+│  │  ↗↗ accelerating │  │                                      │              │
+│  │                  │  │  Reasons:                            │              │
+│  │                  │  │  - Active churn + flaky tests        │              │
+│  │                  │  │  - 2 implicit couplings agent will   │              │
+│  │                  │  │    miss                              │              │
+│  │                  │  │  - Risk trajectory worsening         │              │
+│  └──────────────────┘  └──────────────────────────────────────┘              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### The "Test Coverage vs Change Hotspot" Heat Correlation Map
+
+A scatter-plot-style overlay where:
+- **X-axis:** Churn rate (how often it changes)
+- **Y-axis:** Test coverage depth
+- **Each dot:** A file/module
+- **Dot size:** Blast radius (bigger = more downstream impact)
+
+```
+  Coverage ▲
+    100%   │  ●           ● ●  ●        ← SAFE: high coverage, high churn
+           │     ●    ●
+     50%   │  ●     ●        ●  ●       ← WARNING: moderate coverage, moderate churn
+           │          ●
+      0%   │      ●     ●  ⬤     ●     ← DANGER: low coverage, high churn (⬤ = big blast)
+           └──────────────────────────▶ Churn
+                low              high
+```
+
+The lower-right quadrant is where you look for trouble. Big dots in the lower-right are sirens.
+
+---
+
+## 10. Interaction Design — How You Navigate This
+
+### Modes
+
+1. **Terrain Mode (default):** Bird's eye. Material + activity encoding. Quick scan.
+2. **Flow Mode (click entity):** Node-wire view centered on selection. Shows coupling.
+3. **Delta Mode (PR context):** Seismic/construction overlay showing what changed.
+4. **Timeline Mode (scrubber):** Animated evolution of terrain over time.
+
+### Overlay Toggles (keyboard shortcuts)
+
+| Key | Overlay | What it shows |
+|-----|---------|--------------|
+| `1` | Safety Rating | Current risk level (green/yellow/red material) |
+| `2` | Activity/Heat | Churn intensity (ember glow / cold granite / moss) |
+| `3` | Protection | Test coverage as shield/armor layer |
+| `4` | Coupling | Gravity lanes for temporal coupling |
+| `5` | Trajectory | Directional arrows showing risk trend |
+| `6` | Blast Radius | Seismic rings showing change propagation |
+
+### Progressive Disclosure
+
+- **Distance (zoomed out):** See material quality + color temperature only. "Where are the hot fragile zones?"
+- **Medium zoom:** See individual files. Shields become visible. Coupling lanes appear.
+- **Close zoom:** See entity-level detail. Shield cracks visible. Individual function heat. Resonance lines.
+- **Click:** Open flow view / detail panel with full metrics.
+
+---
+
+## 11. Design Principles Summary
+
+1. **Parallel visual channels beat sequential text.** Use material, color, animation, spatial position, opacity, border, and size simultaneously. Humans process these in parallel.
+
+2. **Metaphors must be consistent.** Everything derives from "codebase is terrain." Don't mix metaphors — no dashboards, no spreadsheet-thinking. Stay in the world.
+
+3. **The most important thing to show is the COMBINATION of change + confidence.** Not either one alone. Hot+fragile is the killer insight. Cold+solid is boring (good). These combos need distinct visual signatures.
+
+4. **Animation communicates liveness and uncertainty.** Static = certain/stable. Pulsing = active/changing. Flickering = unreliable. These map perfectly to change and confidence dimensions.
+
+5. **Temporal coupling is the hardest to show and the most valuable.** It's invisible in code. It must be FELT not just labeled. Resonance and gravitational pull metaphors make the invisible tangible.
+
+6. **Trajectory matters more than state.** A green module trending red is more alarming than a yellow module that's been yellow forever. Always show the derivative.
+
+7. **The viz should feel like a living organism, not a dashboard.** The codebase breathes, grows, erodes, and heals. The visual language should reflect this organic quality.
+
+---
+
+## 12. What to Build First
+
+Given Strata's current state (circle-packing terrain map + diff analysis working):
+
+1. **Material encoding on existing terrain map** — Replace uniform color fill with material-quality rendering (opacity for coverage, glow for activity, texture for churn variability). This enhances the existing view without changing layout.
+
+2. **Temporal coupling gravity lanes** — Add animated curved lines for implicit coupling on the terrain map. Toggle with keyboard. Biggest differentiation from any existing tool.
+
+3. **PR delta construction overlay** — When in diff mode, render changed files with construction-tape borders + ripple rings for blast zone. Connects to existing `strata diff` data.
+
+4. **Risk trajectory arrows** — Small directional indicators on tiles. Requires storing 2+ snapshots over time (new infrastructure, but simple — just `.sv` file diff between analysis runs).
+
+5. **Flaky test flickering** — Requires test flakiness data (new signal), but the rendering is trivial once you have it.
+
+---
+
+## 13. Research References & Prior Art to Study
+
+- **Gource** — Git history as animated tree growth. Beautiful but doesn't encode risk/coverage.
+- **CodeCity / Software Cartography** — 3D city metaphor for code. Buildings = classes. Height = complexity. Good spatial encoding, but loses material quality.
+- **Flame graphs** — Width = time, depth = call stack. Perfect for one dimension, doesn't combine with coverage.
+- **Unreal Blueprints** — Node-wire for game logic. Best existing reference for flow view. Study how they handle density and subgraph scoping.
+- **Observable Plot** — Declarative visualization library. Study their encoding channels.
+- **Windy.com** — Weather visualization. Study how they layer wind (animation), temperature (color), pressure (contours). This is the gold standard for multi-channel geo visualization.
+- **John Snow's cholera map** — The original data viz. Spatial encoding revealed invisible structure (the pump). Temporal coupling viz should aspire to this.
