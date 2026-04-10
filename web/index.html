@@ -109,8 +109,8 @@ canvas:active { cursor: grabbing; }
 <div id="toolbar">
   <span class="logo">STRATA</span>
   <div class="sep"></div>
-  <button class="overlay-btn active" data-overlay="attention">Attention
-    <span class="btn-tooltip"><strong>Attention Needed</strong><br>Low = agents handle autonomously. Medium = review output. High = collaborate with agent. <kbd>1</kbd></span>
+  <button class="overlay-btn active" data-overlay="attention">Delegation
+    <span class="btn-tooltip"><strong>Delegation Level</strong><br>AUTO = agent solo. GLANCE = skim output. REVIEW = read carefully. COLLABORATE = pair w/ agent. HUMAN = do it yourself. <kbd>1</kbd></span>
   </button>
   <button class="overlay-btn" data-overlay="ripple">Ripple
     <span class="btn-tooltip"><strong>Change Ripple</strong><br>How far changes cascade. High = touching this affects many files. <kbd>2</kbd></span>
@@ -137,10 +137,12 @@ canvas:active { cursor: grabbing; }
 </div>
 
 <div id="legend">
-  <div class="legend-title">Attention</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(40,180,80,0.5)"></div> Low — agents handle it</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,180,40,0.5)"></div> Medium — review output</div>
-  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,50,50,0.5)"></div> High — collaborate w/ agent</div>
+  <div class="legend-title">Delegation</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(40,180,80,0.5)"></div> AUTO — agent handles it</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(80,200,120,0.5)"></div> GLANCE — skim the output</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,180,40,0.5)"></div> REVIEW — read carefully</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(240,130,40,0.5)"></div> COLLABORATE — work with agent</div>
+  <div class="legend-row"><div class="legend-circle" style="background:rgba(220,50,50,0.5)"></div> HUMAN — do it yourself</div>
   <div class="legend-row" style="margin-top:4px"><span style="color:#666">Size</span> = lines of code</div>
 </div>
 <div id="breadcrumb"></div>
@@ -426,11 +428,39 @@ function countEntities(node) {
 const GROUP_FILL = 'rgba(30, 30, 50, 0.4)';
 const GROUP_STROKE = 'rgba(80, 80, 120, 0.3)';
 
-const SAFETY_COLORS = {
-  green:  { fill: 'rgba(40, 180, 80, 0.45)', stroke: 'rgba(40, 180, 80, 0.7)' },
-  yellow: { fill: 'rgba(220, 180, 40, 0.45)', stroke: 'rgba(220, 180, 40, 0.7)' },
-  red:    { fill: 'rgba(220, 50, 50, 0.5)', stroke: 'rgba(220, 50, 50, 0.8)' },
+const DELEGATION_LEVELS = ['AUTO', 'GLANCE', 'REVIEW', 'COLLABORATE', 'HUMAN'];
+
+const DELEGATION_COLORS = {
+  AUTO:        { fill: 'rgba(40, 180, 80, 0.45)',  stroke: 'rgba(40, 180, 80, 0.7)' },
+  GLANCE:      { fill: 'rgba(80, 200, 120, 0.45)', stroke: 'rgba(80, 200, 120, 0.7)' },
+  REVIEW:      { fill: 'rgba(220, 180, 40, 0.45)', stroke: 'rgba(220, 180, 40, 0.7)' },
+  COLLABORATE: { fill: 'rgba(240, 130, 40, 0.5)',  stroke: 'rgba(240, 130, 40, 0.8)' },
+  HUMAN:       { fill: 'rgba(220, 50, 50, 0.5)',   stroke: 'rgba(220, 50, 50, 0.8)' },
 };
+
+const DELEGATION_DOT_COLORS = {
+  AUTO: '#4ade80', GLANCE: '#6ee7a0', REVIEW: '#facc15', COLLABORATE: '#f97316', HUMAN: '#ef4444',
+};
+
+function computeDelegation(risk, ripple, blast) {
+  if (!risk) return 'AUTO';
+  let score = 0;
+  if (risk.safetyRating === 'red') score += 3;
+  else if (risk.safetyRating === 'yellow') score += 1;
+  if (risk.contextCost > 15000) score += 2;
+  else if (risk.contextCost > 8000) score += 1;
+  if (ripple) {
+    if (ripple.implicitCouplings.length >= 3) score += 2;
+    else if (ripple.implicitCouplings.length >= 1) score += 1;
+  }
+  if (blast && blast.radius > 10) score += 1;
+  score += Math.min(2, risk.riskFactors.length);
+  if (score >= 8) return 'HUMAN';
+  if (score >= 5) return 'COLLABORATE';
+  if (score >= 3) return 'REVIEW';
+  if (score >= 1) return 'GLANCE';
+  return 'AUTO';
+}
 
 function getColor(circle, overlay) {
   if (circle.type !== 'entity') {
@@ -442,8 +472,10 @@ function getColor(circle, overlay) {
   const ripple = rippleMap.get(e.id);
 
   if (overlay === 'attention') {
-    const rating = risk ? risk.safetyRating : 'green';
-    return SAFETY_COLORS[rating];
+    const ripple = rippleMap.get(e.id);
+    const blast = blastMap.get(e.id);
+    const level = computeDelegation(risk, ripple, blast);
+    return DELEGATION_COLORS[level];
   }
 
   let value = 0;
@@ -550,7 +582,7 @@ function drawNode(node) {
 
   // For entities with low attention, reduce visual prominence
   const risk = isEntity ? riskMap.get(entityId) : null;
-  const isLowAttention = risk && risk.safetyRating === 'green' && currentOverlay === 'attention';
+  const isLowAttention = risk && computeDelegation(risk, rippleMap.get(entityId), blastMap.get(entityId)) === 'AUTO' && currentOverlay === 'attention';
 
   if (!skipGroupRing) {
     ctx.beginPath();
@@ -697,11 +729,12 @@ function showTooltip(node, mx, my) {
     const attColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
     const attLabel = { green: 'LOW', yellow: 'MEDIUM', red: 'HIGH' };
     const rating = risk ? risk.safetyRating : 'green';
+    const delegation = computeDelegation(risk, ripple, br);
 
     html = `
       <div class="tt-title">${e.name}</div>
       <div class="tt-path">${e.filePath}:${e.startLine}</div>
-      <div class="tt-row"><span class="tt-label">Attention</span><span class="tt-value" style="color:${attColor[rating]}">${attLabel[rating]}</span></div>
+      <div class="tt-row"><span class="tt-label">Delegation</span><span class="tt-value" style="color:${DELEGATION_DOT_COLORS[delegation]}">${delegation}</span></div>
       ${risk ? `<div class="tt-row"><span class="tt-label">Context cost</span><span class="tt-value">~${risk.contextCost >= 1000 ? (risk.contextCost / 1000).toFixed(1) + 'k' : risk.contextCost} tokens</span></div>` : ''}
       ${ripple ? `<div class="tt-row"><span class="tt-label">Change ripple</span><span class="tt-value">${ripple.affectedFiles.length} files</span></div>` : ''}
       ${ripple && ripple.implicitCouplings.length > 0 ? `<div class="tt-row"><span class="tt-label">Implicit couplings</span><span class="tt-value" style="color:#facc15">${ripple.implicitCouplings.length}</span></div>` : ''}
@@ -742,11 +775,12 @@ function showDetail(node) {
   const attColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
   const attLabel = { green: '● LOW ATTENTION', yellow: '● MEDIUM ATTENTION', red: '● HIGH ATTENTION' };
   const rating = risk ? risk.safetyRating : 'green';
+  const delegation = computeDelegation(risk, ripple, br);
 
   let html = `
     <div class="dp-title">${e.name}</div>
     <div class="dp-path">${e.filePath}:${e.startLine}-${e.endLine} · ${e.kind}</div>
-    <div style="font-size:14px;font-weight:700;color:${attColor[rating]};margin:8px 0">${attLabel[rating]}</div>
+    <div style="font-size:14px;font-weight:700;color:${DELEGATION_DOT_COLORS[delegation]};margin:8px 0">● ${delegation}</div>
 
     <div class="dp-section">
       <h3>Agent Risk</h3>
