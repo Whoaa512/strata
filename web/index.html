@@ -144,6 +144,8 @@ canvas:active { cursor: grabbing; }
   <div class="legend-row"><div class="legend-circle" style="background:rgba(240,130,40,0.5)"></div> COLLABORATE — work with agent</div>
   <div class="legend-row"><div class="legend-circle" style="background:rgba(220,50,50,0.5)"></div> HUMAN — do it yourself</div>
   <div class="legend-row" style="margin-top:4px"><span style="color:#666">Size</span> = lines of code</div>
+  <div class="legend-row" style="margin-top:4px;color:#666;font-size:10px">AUTO/GLANCE muted · REVIEW+ emphasized</div>
+  <div class="legend-row" style="color:#666;font-size:10px">Click entity → dims unrelated terrain</div>
 </div>
 <div id="breadcrumb"></div>
 <div id="stats"></div>
@@ -168,6 +170,7 @@ let currentOverlay = 'attention';
 let searchTerm = '';
 let zoomStack = [];
 let blastHighlight = new Set();
+let selectionRelevant = new Set();
 let dragStart = null;
 let isDragging = false;
 let renderScheduled = false;
@@ -561,26 +564,30 @@ function drawNode(node) {
   const isSelected = node === selectedNode;
   const isDimmed = hasBlast && isEntity && !blastHighlight.has(entityId);
 
-  // For entities with low attention, reduce visual prominence
+  const hasSelection = selectedNode && !hasBlast;
+  const isSelRelevant = hasSelection && isEntity && selectionRelevant.has(entityId);
+  const isSelDimmed = hasSelection && isEntity && !isSelRelevant;
+
   const risk = isEntity ? riskMap.get(entityId) : null;
-  const isLowAttention = risk && getDelegation(risk) === 'AUTO' && currentOverlay === 'attention';
+  const delegation = risk ? getDelegation(risk) : 'AUTO';
+  const isMuted = currentOverlay === 'attention' && (delegation === 'AUTO' || delegation === 'GLANCE');
 
   if (!skipGroupRing) {
     ctx.beginPath();
     ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
 
-    if (isDimmed) {
-      ctx.fillStyle = 'rgba(20, 20, 30, 0.3)';
-      ctx.strokeStyle = 'rgba(40, 40, 60, 0.2)';
-    } else if (isHighlighted) {
+    if (isDimmed || isSelDimmed) {
+      ctx.fillStyle = 'rgba(20, 20, 30, 0.15)';
+      ctx.strokeStyle = 'rgba(40, 40, 60, 0.15)';
+    } else if (isHighlighted || isSelRelevant) {
       ctx.fillStyle = 'rgba(139, 92, 246, 0.4)';
       ctx.strokeStyle = 'rgba(139, 92, 246, 0.9)';
     } else if (isSearchMatch) {
       ctx.fillStyle = 'rgba(255, 200, 50, 0.3)';
       ctx.strokeStyle = 'rgba(255, 200, 50, 0.8)';
-    } else if (isLowAttention) {
-      ctx.fillStyle = 'rgba(30, 40, 35, 0.2)';
-      ctx.strokeStyle = 'rgba(40, 60, 45, 0.15)';
+    } else if (isMuted) {
+      ctx.fillStyle = fill.replace(/[\d.]+\)$/, m => (parseFloat(m) * 0.35).toFixed(2) + ')');
+      ctx.strokeStyle = stroke.replace(/[\d.]+\)$/, m => (parseFloat(m) * 0.35).toFixed(2) + ')');
     } else {
       ctx.fillStyle = fill;
       ctx.strokeStyle = stroke;
@@ -602,7 +609,9 @@ function drawNode(node) {
     const fontSize = Math.min(14, Math.max(8, node.r * 0.3));
     if (fontSize >= 6) {
       ctx.font = `${isGroup ? '' : ''}${fontSize / camera.zoom}px 'SF Mono', 'Fira Code', monospace`;
-      ctx.fillStyle = isLowAttention ? 'rgba(130,130,130,0.4)' : (isEntity ? '#e0e0e0' : '#888');
+      const labelDimmed = isDimmed || isSelDimmed;
+      const labelMuted = isMuted && !isSelRelevant;
+      ctx.fillStyle = labelDimmed ? 'rgba(130,130,130,0.2)' : labelMuted ? 'rgba(130,130,130,0.4)' : (isEntity ? '#e0e0e0' : '#888');
       ctx.textAlign = 'center';
       ctx.textBaseline = isGroup ? 'top' : 'middle';
 
@@ -740,8 +749,33 @@ function showTooltip(node, mx, my) {
 }
 
 // --- Detail Panel ---
+function buildSelectionRelevant(node) {
+  selectionRelevant.clear();
+  if (!node || node.type !== 'entity') return;
+  const e = node.entity;
+  selectionRelevant.add(e.id);
+
+  const br = blastMap.get(e.id);
+  if (br) for (const id of br.transitiveCallers) selectionRelevant.add(id);
+
+  const ripple = rippleMap.get(e.id);
+  if (ripple) {
+    for (const fp of ripple.affectedFiles) {
+      for (const ent of data.entities) {
+        if (ent.filePath === fp) selectionRelevant.add(ent.id);
+      }
+    }
+    for (const ic of ripple.implicitCouplings) {
+      for (const ent of data.entities) {
+        if (ent.filePath === ic.filePath) selectionRelevant.add(ent.id);
+      }
+    }
+  }
+}
+
 function showDetail(node) {
   if (!node || node.type !== 'entity') return;
+  buildSelectionRelevant(node);
   const e = node.entity;
   const br = blastMap.get(e.id);
   const hs = hotspotMap.get(e.id);
@@ -834,6 +868,7 @@ function closeDetail() {
   detailPanel.classList.remove('open');
   selectedNode = null;
   blastHighlight.clear();
+  selectionRelevant.clear();
   scheduleRender();
 }
 
