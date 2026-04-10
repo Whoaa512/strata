@@ -18,6 +18,15 @@ writeSvFile(doc, rootDir);
 console.log(`Analysis complete: ${doc.entities.length} entities, ${doc.callGraph.length} edges (${elapsed}s)`);
 
 const webDir = path.join(import.meta.dir, "..", "web");
+const rippleMap = new Map(doc.changeRipple.map(r => [r.entityId, r]));
+const blastMap = new Map(doc.blastRadius.map(b => [b.entityId, b]));
+const enrichedDoc = {
+  ...doc,
+  agentRisk: doc.agentRisk.map(r => ({
+    ...r,
+    delegationLevel: computeDelegationLevel(r, rippleMap.get(r.entityId), blastMap.get(r.entityId)),
+  })),
+};
 
 const server = Bun.serve({
   port,
@@ -25,16 +34,7 @@ const server = Bun.serve({
     const url = new URL(req.url);
 
     if (url.pathname === "/api/data") {
-      const rippleMap = new Map((doc.changeRipple || []).map(r => [r.entityId, r]));
-      const blastMap = new Map(doc.blastRadius.map(b => [b.entityId, b]));
-      const enriched = {
-        ...doc,
-        agentRisk: doc.agentRisk.map(r => ({
-          ...r,
-          delegationLevel: computeDelegationLevel(r, rippleMap.get(r.entityId), blastMap.get(r.entityId)),
-        })),
-      };
-      return new Response(JSON.stringify(enriched), {
+      return new Response(JSON.stringify(enrichedDoc), {
         headers: { "Content-Type": "application/json" },
       });
     }
