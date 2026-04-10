@@ -2,6 +2,7 @@
 import { analyze, writeSvFile } from "./analyze";
 import { buildFlowNeighborhood } from "./flow";
 import { buildCodebaseShape } from "./shape";
+import { computeDelegationLevel } from "./delegation";
 import path from "path";
 import fs from "fs";
 
@@ -24,7 +25,16 @@ const server = Bun.serve({
     const url = new URL(req.url);
 
     if (url.pathname === "/api/data") {
-      return new Response(JSON.stringify(doc), {
+      const rippleMap = new Map((doc.changeRipple || []).map(r => [r.entityId, r]));
+      const blastMap = new Map(doc.blastRadius.map(b => [b.entityId, b]));
+      const enriched = {
+        ...doc,
+        agentRisk: doc.agentRisk.map(r => ({
+          ...r,
+          delegationLevel: computeDelegationLevel(r, rippleMap.get(r.entityId), blastMap.get(r.entityId)),
+        })),
+      };
+      return new Response(JSON.stringify(enriched), {
         headers: { "Content-Type": "application/json" },
       });
     }

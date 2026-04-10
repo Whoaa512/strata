@@ -442,24 +442,9 @@ const DELEGATION_DOT_COLORS = {
   AUTO: '#4ade80', GLANCE: '#6ee7a0', REVIEW: '#facc15', COLLABORATE: '#f97316', HUMAN: '#ef4444',
 };
 
-function computeDelegation(risk, ripple, blast) {
+function getDelegation(risk) {
   if (!risk) return 'AUTO';
-  let score = 0;
-  if (risk.safetyRating === 'red') score += 3;
-  else if (risk.safetyRating === 'yellow') score += 1;
-  if (risk.contextCost > 15000) score += 2;
-  else if (risk.contextCost > 8000) score += 1;
-  if (ripple) {
-    if (ripple.implicitCouplings.length >= 3) score += 2;
-    else if (ripple.implicitCouplings.length >= 1) score += 1;
-  }
-  if (blast && blast.radius > 10) score += 1;
-  score += Math.min(2, risk.riskFactors.length);
-  if (score >= 8) return 'HUMAN';
-  if (score >= 5) return 'COLLABORATE';
-  if (score >= 3) return 'REVIEW';
-  if (score >= 1) return 'GLANCE';
-  return 'AUTO';
+  return risk.delegationLevel || 'AUTO';
 }
 
 function getColor(circle, overlay) {
@@ -472,9 +457,7 @@ function getColor(circle, overlay) {
   const ripple = rippleMap.get(e.id);
 
   if (overlay === 'attention') {
-    const ripple = rippleMap.get(e.id);
-    const blast = blastMap.get(e.id);
-    const level = computeDelegation(risk, ripple, blast);
+    const level = getDelegation(risk);
     return DELEGATION_COLORS[level];
   }
 
@@ -582,7 +565,7 @@ function drawNode(node) {
 
   // For entities with low attention, reduce visual prominence
   const risk = isEntity ? riskMap.get(entityId) : null;
-  const isLowAttention = risk && computeDelegation(risk, rippleMap.get(entityId), blastMap.get(entityId)) === 'AUTO' && currentOverlay === 'attention';
+  const isLowAttention = risk && getDelegation(risk) === 'AUTO' && currentOverlay === 'attention';
 
   if (!skipGroupRing) {
     ctx.beginPath();
@@ -726,10 +709,7 @@ function showTooltip(node, mx, my) {
     const ripple = rippleMap.get(e.id);
     const br = blastMap.get(e.id);
 
-    const attColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
-    const attLabel = { green: 'LOW', yellow: 'MEDIUM', red: 'HIGH' };
-    const rating = risk ? risk.safetyRating : 'green';
-    const delegation = computeDelegation(risk, ripple, br);
+    const delegation = getDelegation(risk);
 
     html = `
       <div class="tt-title">${e.name}</div>
@@ -772,10 +752,7 @@ function showDetail(node) {
 
   const risk = riskMap.get(e.id);
   const ripple = rippleMap.get(e.id);
-  const attColor = { green: '#4ade80', yellow: '#facc15', red: '#ef4444' };
-  const attLabel = { green: '● LOW ATTENTION', yellow: '● MEDIUM ATTENTION', red: '● HIGH ATTENTION' };
-  const rating = risk ? risk.safetyRating : 'green';
-  const delegation = computeDelegation(risk, ripple, br);
+  const delegation = getDelegation(risk);
 
   let html = `
     <div class="dp-title">${e.name}</div>

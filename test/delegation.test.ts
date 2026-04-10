@@ -46,18 +46,16 @@ describe("computeDelegationLevel", () => {
     }))).toBe("GLANCE");
   });
 
-  test("yellow safety → at least GLANCE", () => {
-    const level = computeDelegationLevel(makeRisk({ safetyRating: "yellow" }));
-    expect(DELEGATION_LEVELS.indexOf(level)).toBeGreaterThanOrEqual(1);
+  test("yellow safety → GLANCE", () => {
+    expect(computeDelegationLevel(makeRisk({ safetyRating: "yellow" }))).toBe("GLANCE");
   });
 
-  test("yellow + implicit coupling → at least GLANCE", () => {
+  test("yellow + implicit coupling → GLANCE", () => {
     const risk = makeRisk({ safetyRating: "yellow" });
     const ripple = makeRipple({
       implicitCouplings: [{ filePath: "x.ts", cochangeRate: 0.6 }],
     });
-    const level = computeDelegationLevel(risk, ripple);
-    expect(DELEGATION_LEVELS.indexOf(level)).toBeGreaterThanOrEqual(1);
+    expect(computeDelegationLevel(risk, ripple)).toBe("GLANCE");
   });
 
   test("yellow + multiple implicit couplings + risk factor → REVIEW", () => {
@@ -75,14 +73,13 @@ describe("computeDelegationLevel", () => {
     expect(computeDelegationLevel(risk, ripple)).toBe("REVIEW");
   });
 
-  test("red safety + high context cost → COLLABORATE or higher", () => {
+  test("red safety + high context cost → COLLABORATE", () => {
     const risk = makeRisk({
       safetyRating: "red",
       contextCost: 16000,
       riskFactors: [],
     });
-    const level = computeDelegationLevel(risk);
-    expect(DELEGATION_LEVELS.indexOf(level)).toBeGreaterThanOrEqual(3);
+    expect(computeDelegationLevel(risk)).toBe("COLLABORATE");
   });
 
   test("maxed out signals → HUMAN", () => {
@@ -103,12 +100,9 @@ describe("computeDelegationLevel", () => {
   });
 
   test("blast radius > 10 adds signal", () => {
-    const base = makeRisk({ safetyRating: "yellow" });
-    const withSmallBlast = computeDelegationLevel(base, undefined, makeBlast({ radius: 5 }));
-    const withBigBlast = computeDelegationLevel(base, undefined, makeBlast({ radius: 15 }));
-    expect(DELEGATION_LEVELS.indexOf(withBigBlast)).toBeGreaterThanOrEqual(
-      DELEGATION_LEVELS.indexOf(withSmallBlast),
-    );
+    const base = makeRisk({ safetyRating: "yellow", riskFactors: ["a"] });
+    expect(computeDelegationLevel(base, undefined, makeBlast({ radius: 5 }))).toBe("GLANCE");
+    expect(computeDelegationLevel(base, undefined, makeBlast({ radius: 15 }))).toBe("REVIEW");
   });
 
   test("risk factors capped at 2 contribution", () => {
